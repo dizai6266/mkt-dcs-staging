@@ -1,0 +1,24 @@
+# Secrets - 不要提交敏感配置
+config/variables.json
+config/variables.json.bak
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.venv/
+venv/
