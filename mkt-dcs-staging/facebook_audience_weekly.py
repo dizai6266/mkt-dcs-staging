@@ -24,14 +24,12 @@ if current_dir not in sys.path:
     sys.path.append(current_dir)
 
 from utils import helper
-from utils.config_manager import get_env_mode
+from utils.config_manager import get_env_mode, setup_feishu_notify
 import importlib
 importlib.reload(helper)
 
-# 添加 feishu-notify 路径（根据环境自动切换）
-_feishu_notify_path = '/Workspace/Repos/Shared/feishu-notify' if get_env_mode() == 'prod' else '/Workspace/Users/dizai@joycastle.mobi/feishu-notify'
-sys.path.append(_feishu_notify_path)
-from notifier import Notifier
+# 设置 feishu-notify（路径已在 config_manager 中配置）
+Notifier = setup_feishu_notify()
 
 from databricks import sql
 from facebook_business.adobjects.customaudience import CustomAudience

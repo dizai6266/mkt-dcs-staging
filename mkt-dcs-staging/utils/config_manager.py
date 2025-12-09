@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 # 如果设置了环境变量 ENV_MODE，会优先使用环境变量
 DEFAULT_ENV_MODE = 'staging'  # 修改这里即可改变所有报告的默认环境模式
 FORCE_DEFAULT_ENV_MODE = False  # 设置为 True 可强制使用 DEFAULT_ENV_MODE，忽略环境变量
+
+# feishu-notify 路径配置
+FEISHU_NOTIFY_PATH_PROD = '/Workspace/Repos/Shared/feishu-notify'
+FEISHU_NOTIFY_PATH_DEV = '/Workspace/Users/dizai@joycastle.mobi/feishu-notify'
 # ========================
 
 # 检测运行环境
@@ -83,6 +87,40 @@ def get_env_mode():
 
 # 模块加载时自动初始化环境模式
 init_env_mode()
+
+def get_feishu_notify_path():
+    """
+    获取 feishu-notify 模块的路径
+    - prod: 使用共享路径 FEISHU_NOTIFY_PATH_PROD
+    - 其他: 使用开发路径 FEISHU_NOTIFY_PATH_DEV
+    """
+    env_mode = get_env_mode()
+    if env_mode == 'prod':
+        return FEISHU_NOTIFY_PATH_PROD
+    return FEISHU_NOTIFY_PATH_DEV
+
+def setup_feishu_notify():
+    """
+    设置 feishu-notify 模块路径并导入 Notifier
+    
+    Usage:
+        from utils.config_manager import setup_feishu_notify
+        Notifier = setup_feishu_notify()
+    
+    Returns:
+        Notifier class from feishu-notify module
+    """
+    import sys
+    feishu_path = get_feishu_notify_path()
+    if feishu_path not in sys.path:
+        sys.path.append(feishu_path)
+    
+    try:
+        from notifier import Notifier
+        return Notifier
+    except ImportError as e:
+        logger.warning(f"⚠️ Failed to import Notifier from {feishu_path}: {e}")
+        return None
 
 def get_secret_config(config_name):
     """
