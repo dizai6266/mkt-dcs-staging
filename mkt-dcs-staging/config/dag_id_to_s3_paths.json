@@ -1,0 +1,378 @@
+{
+  "aarki_audience": {
+    "prod": "reports/iap/upload_audience/{{ds}}/*",
+    "staging": "reports_staging/iap/upload_audience/{{ds}}/*"
+  },
+  "aarki_monitor_spend_report": {
+    "prod": "reports/spend_monitor/aarki/{{ds}}/*",
+    "staging": "reports_staging/spend_monitor/aarki/{{ds}}/*"
+  },
+  "aarki_spend_report": {
+    "prod": "reports/spend/aarki/{{ds}}/*",
+    "staging": "reports_staging/spend/aarki/{{ds}}/*"
+  },
+  "adcolony_income_report": {
+    "prod": "reports/income/adcolony/{{ds}}/*",
+    "staging": "reports_staging/income/adcolony/{{ds}}/*"
+  },
+  "adcolony_spend_report": {
+    "prod": "reports/spend/adcolony/{{ds}}/*",
+    "staging": "reports_staging/spend/adcolony/{{ds}}/*"
+  },
+  "adjoe_spend_report": {
+    "prod": "reports/spend/adjoe/{{ds}}/*",
+    "staging": "reports_staging/spend/adjoe/{{ds}}/*"
+  },
+  "af_audience": {
+    "prod": "reports/iap/upload_audience/{{ds}}/*",
+    "staging": "reports_staging/iap/upload_audience/{{ds}}/*"
+  },
+  "af_audience_2": {
+    "prod": "reports/iap/upload_audience/{{ds}}/*",
+    "staging": "reports_staging/iap/upload_audience/{{ds}}/*"
+  },
+  "af_audience_apl": {
+    "prod": "reports/iap/upload_audience/{{ds}}/*",
+    "staging": "reports_staging/iap/upload_audience/{{ds}}/*"
+  },
+  "amazon_iap_report": {
+    "prod": "reports/iap/amazon/{{ds}}/*",
+    "staging": "reports_staging/iap/amazon/{{ds}}/*"
+  },
+  "app_store_iap_report": {
+    "prod": "reports/iap/app_store/{{ds}}/*",
+    "staging": "reports_staging/iap/app_store/{{ds}}/*"
+  },
+  "appier_spend_report": {
+    "prod": "reports/spend/appier/{{ds}}/*",
+    "staging": "reports_staging/spend/appier/{{ds}}/*"
+  },
+  "apple_search_spend_report": {
+    "prod": "reports/spend/apple_search/{{ds}}/*",
+    "staging": "reports_staging/spend/apple_search/{{ds}}/*"
+  },
+  "applovin_asset_spend_report": {
+    "prod": "reports/spend/applovin_asset/{{ds}}/*",
+    "staging": "reports_staging/spend/applovin_asset/{{ds}}/*"
+  },
+  "applovin_income_report": {
+    "prod": "reports/iap/applovin/{{ds}}/*",
+    "staging": "reports_staging/iap/applovin/{{ds}}/*"
+  },
+  "applovin_instant_spend_report": {
+    "prod": "reports/iap/applovin/{{ds}}/*",
+    "staging": "reports_staging/iap/applovin/{{ds}}/*"
+  },
+  "applovin_max_ad_revenue_report": {
+    "prod": "reports/mediation_config/applovin_max/{{ds}}/*",
+    "staging": "reports_staging/mediation_config/applovin_max/{{ds}}/*"
+  },
+  "applovin_max_report": {
+    "prod": "reports/mediation_config/applovin_max/{{ds}}/*",
+    "staging": "reports_staging/mediation_config/applovin_max/{{ds}}/*"
+  },
+  "applovin_max_revenue_report": {
+    "prod": "reports/mediation_config/applovin_max/{{ds}}/*",
+    "staging": "reports_staging/mediation_config/applovin_max/{{ds}}/*"
+  },
+  "applovin_monitor_spend_report": {
+    "prod": "reports/spend_monitor/applovin/{{ds}}/*",
+    "staging": "reports_staging/spend_monitor/applovin/{{ds}}/*"
+  },
+  "applovin_spend_report": {
+    "prod": "reports/iap/applovin/{{ds}}/*",
+    "staging": "reports_staging/iap/applovin/{{ds}}/*"
+  },
+  "appsflyer_ad_revenue_attribution_report": {
+    "prod": "reports/attribution/appsflyer_ad_revenue/{{ds}}/*",
+    "staging": "reports_staging/attribution/appsflyer_ad_revenue/{{ds}}/*"
+  },
+  "appsflyer_spend_spend_report": {
+    "prod": "reports/spend/appsflyer_spend/{{ds}}/*",
+    "staging": "reports_staging/spend/appsflyer_spend/{{ds}}/*"
+  },
+  "ayet_spend_report": {
+    "prod": "reports/spend/ayet/{{ds}}/*",
+    "staging": "reports_staging/spend/ayet/{{ds}}/*"
+  },
+  "bidding_facebook_income_report": {
+    "prod": "reports/income/facebook/{{ds}}/*",
+    "staging": "reports_staging/income/facebook/{{ds}}/*"
+  },
+  "bigabid_spend_report": {
+    "prod": "reports/spend/bigabid/{{ds}}/*",
+    "staging": "reports_staging/spend/bigabid/{{ds}}/*"
+  },
+  "blind_ferret_cpe_spend_report": {
+    "prod": "reports/spend/blind_ferret_cpe/{{ds}}/*",
+    "staging": "reports_staging/spend/blind_ferret_cpe/{{ds}}/*"
+  },
+  "blind_ferret_spend_report": {
+    "prod": "reports/spend/blind_ferret/{{ds}}/*",
+    "staging": "reports_staging/spend/blind_ferret/{{ds}}/*"
+  },
+  "chartboost_income_report": {
+    "prod": "reports/income/chartboost/{{ds}}/*",
+    "staging": "reports_staging/income/chartboost/{{ds}}/*"
+  },
+  "chartboost_market_report": {
+    "prod": "reports/income/chartboost/{{ds}}/*",
+    "staging": "reports_staging/income/chartboost/{{ds}}/*"
+  },
+  "chartboost_monitor_market_report": {
+    "prod": "reports/spend_monitor/chartboost/{{ds}}/*",
+    "staging": "reports_staging/spend_monitor/chartboost/{{ds}}/*"
+  },
+  "digitalturbine_spend_report": {
+    "prod": "reports/spend/digitalturbine/{{ds}}/*",
+    "staging": "reports_staging/spend/digitalturbine/{{ds}}/*"
+  },
+  "edge_spend_report": {
+    "prod": "reports/spend/edge/{{ds}}/*",
+    "staging": "reports_staging/spend/edge/{{ds}}/*"
+  },
+  "everflow_spend_report": {
+    "prod": "reports/spend/everflow/{{ds}}/*",
+    "staging": "reports_staging/spend/everflow/{{ds}}/*"
+  },
+  "exchange_rates_latest_currency_layer": {
+    "prod": "reports/exchange_rates/currency_layer/{{ds}}/*",
+    "staging": "reports_staging/exchange_rates/currency_layer/{{ds}}/*"
+  },
+  "exchange_rates_latest_report": {
+    "prod": "reports/exchange_rates/exchange_rates_api/{{date}}/*",
+    "staging": "reports_staging/exchange_rates/exchange_rates_api/{{date}}/*"
+  },
+  "exmox_spend_report": {
+    "prod": "reports/spend/exmox/{{ds}}/*",
+    "staging": "reports_staging/spend/exmox/{{ds}}/*"
+  },
+  "facebook_ad_spend_report": {
+    "prod": "reports/income/facebook/{{ds}}/*",
+    "staging": "reports_staging/income/facebook/{{ds}}/*"
+  },
+  "facebook_asset_asset_spend_report": {
+    "prod": "reports/spend/facebook_asset/{{ds}}/*",
+    "staging": "reports_staging/spend/facebook_asset/{{ds}}/*"
+  },
+  "facebook_audience": {
+    "prod": "reports/iap/upload_audience/{{ds}}/*",
+    "staging": "reports_staging/iap/upload_audience/{{ds}}/*"
+  },
+  "facebook_audience_weekly": {
+    "prod": "reports/iap/upload_audience/{{ds}}/*",
+    "staging": "reports_staging/iap/upload_audience/{{ds}}/*"
+  },
+  "facebook_income_report": {
+    "prod": "reports/income/facebook/{{ds}}/*",
+    "staging": "reports_staging/income/facebook/{{ds}}/*"
+  },
+  "facebook_monitor_spend_report": {
+    "prod": "reports/spend_monitor/facebook/{{ds}}/*",
+    "staging": "reports_staging/spend_monitor/facebook/{{ds}}/*"
+  },
+  "facebook_spend_report": {
+    "prod": "reports/income/facebook/{{ds}}/*",
+    "staging": "reports_staging/income/facebook/{{ds}}/*"
+  },
+  "flurry_attribution_report": {
+    "prod": "reports/attribution/flurry/{{ds}}/*",
+    "staging": "reports_staging/attribution/flurry/{{ds}}/*"
+  },
+  "fyber_income_report": {
+    "prod": "reports/spend/fyber/{{ds}}/*",
+    "staging": "reports_staging/spend/fyber/{{ds}}/*"
+  },
+  "fyber_spend_report": {
+    "prod": "reports/spend/fyber/{{ds}}/*",
+    "staging": "reports_staging/spend/fyber/{{ds}}/*"
+  },
+  "galaxy_store_sales_report": {
+    "prod": "reports/iap/galaxy_store/{{ds}}/*",
+    "staging": "reports_staging/iap/galaxy_store/{{ds}}/*"
+  },
+  "google_ads_asset_spend_report": {
+    "prod": "reports/spend/google_ads_asset/{{ds}}/*",
+    "staging": "reports_staging/spend/google_ads_asset/{{ds}}/*"
+  },
+  "google_income_report": {
+    "prod": "reports/income/google/{{ds}}/*",
+    "staging": "reports_staging/income/google/{{ds}}/*"
+  },
+  "google_mediation_admob_report": {
+    "prod": "reports/mediation/google_mediation/{{ds}}/*",
+    "staging": "reports_staging/mediation/google_mediation/{{ds}}/*"
+  },
+  "google_monitor_spend_report": {
+    "prod": "reports/spend_monitor/google/{{ds}}/*",
+    "staging": "reports_staging/spend_monitor/google/{{ds}}/*"
+  },
+  "google_play_earnings_report": {
+    "prod": "reports/iap/google_play/{{ds}}/*",
+    "staging": "reports_staging/iap/google_play/{{ds}}/*"
+  },
+  "google_play_sales_report": {
+    "prod": "reports/iap/google_play/{{ds}}/*",
+    "staging": "reports_staging/iap/google_play/{{ds}}/*"
+  },
+  "google_spend_report": {
+    "prod": "reports/income/google/{{ds}}/*",
+    "staging": "reports_staging/income/google/{{ds}}/*"
+  },
+  "hangmyads_spend_report": {
+    "prod": "reports/spend/hangmyads/{{ds}}/*",
+    "staging": "reports_staging/spend/hangmyads/{{ds}}/*"
+  },
+  "inmobi_income_report": {
+    "prod": "reports/income/inmobi/{{ds}}/*",
+    "staging": "reports_staging/income/inmobi/{{ds}}/*"
+  },
+  "ironsrc_income_report": {
+    "prod": "reports/income/ironsrc/{{ds}}/*",
+    "staging": "reports_staging/income/ironsrc/{{ds}}/*"
+  },
+  "ironsrc_spend_report": {
+    "prod": "reports/income/ironsrc/{{ds}}/*",
+    "staging": "reports_staging/income/ironsrc/{{ds}}/*"
+  },
+  "japan_local_spend_report": {
+    "prod": "reports/spend/japan_local/{{ds}}/*",
+    "staging": "reports_staging/spend/japan_local/{{ds}}/*"
+  },
+  "kashkick_conversion_report": {
+    "prod": "reports/spend/kashkick/{{ds}}/*",
+    "staging": "reports_staging/spend/kashkick/{{ds}}/*"
+  },
+  "liftoff_spend_report": {
+    "prod": "reports/spend/liftoff/{{ds}}/*",
+    "staging": "reports_staging/spend/liftoff/{{ds}}/*"
+  },
+  "maf_spend_report": {
+    "prod": "reports/spend/maf/{{ds}}/*",
+    "staging": "reports_staging/spend/maf/{{ds}}/*"
+  },
+  "mintegral_income_report": {
+    "prod": "reports/income/mintegral/{{ds}}/*",
+    "staging": "reports_staging/income/mintegral/{{ds}}/*"
+  },
+  "mintegral_spend_report": {
+    "prod": "reports/income/mintegral/{{ds}}/*",
+    "staging": "reports_staging/income/mintegral/{{ds}}/*"
+  },
+  "mistplay_spend_report": {
+    "prod": "reports/spend/mistplay/{{ds}}/*",
+    "staging": "reports_staging/spend/mistplay/{{ds}}/*"
+  },
+  "mobiprobe_spend_report": {
+    "prod": "reports/spend/mobiprobe/{{ds}}/*",
+    "staging": "reports_staging/spend/mobiprobe/{{ds}}/*"
+  },
+  "moloco_income_report": {
+    "prod": "reports/spend/moloco/{{ds}}/*",
+    "staging": "reports_staging/spend/moloco/{{ds}}/*"
+  },
+  "moloco_monitor_spend_report": {
+    "prod": "reports/spend_monitor/moloco/{{ds}}/*",
+    "staging": "reports_staging/spend_monitor/moloco/{{ds}}/*"
+  },
+  "moloco_spend_report": {
+    "prod": "reports/spend/moloco/{{ds}}/*",
+    "staging": "reports_staging/spend/moloco/{{ds}}/*"
+  },
+  "mopub_income_report": {
+    "prod": "reports/income/mopub/{{ds}}/*",
+    "staging": "reports_staging/income/mopub/{{ds}}/*"
+  },
+  "pangle_income_report": {
+    "prod": "reports/income/pangle/{{ds}}/*",
+    "staging": "reports_staging/income/pangle/{{ds}}/*"
+  },
+  "paypal_sales_report": {
+    "prod": "reports/iap/paypal/{{ds}}/*",
+    "staging": "reports_staging/iap/paypal/{{ds}}/*"
+  },
+  "personaly_spend_report": {
+    "prod": "reports/spend/personaly/{{ds}}/*",
+    "staging": "reports_staging/spend/personaly/{{ds}}/*"
+  },
+  "prodege_spend_report": {
+    "prod": "reports/spend/prodege/{{ds}}/*",
+    "staging": "reports_staging/spend/prodege/{{ds}}/*"
+  },
+  "remerge_spend_report": {
+    "prod": "reports/spend/remerge/{{ds}}/*",
+    "staging": "reports_staging/spend/remerge/{{ds}}/*"
+  },
+  "revx_spend_report": {
+    "prod": "reports/spend/revx/{{ds}}/*",
+    "staging": "reports_staging/spend/revx/{{ds}}/*"
+  },
+  "rtbhouse_spend_report": {
+    "prod": "reports/spend/rtbhouse/{{ds}}/*",
+    "staging": "reports_staging/spend/rtbhouse/{{ds}}/*"
+  },
+  "skyflag_spend_report": {
+    "prod": "reports/spend/skyflag/{{ds}}/*",
+    "staging": "reports_staging/spend/skyflag/{{ds}}/*"
+  },
+  "sma_spend_report": {
+    "prod": "reports/spend/sma/{{ds}}/*",
+    "staging": "reports_staging/spend/sma/{{ds}}/*"
+  },
+  "stripe_sales_report": {
+    "prod": "reports/iap/stripe/{{ds}}/*",
+    "staging": "reports_staging/iap/stripe/{{ds}}/*"
+  },
+  "taboola_spend_report": {
+    "prod": "reports/spend/taboola/{{ds}}/*",
+    "staging": "reports_staging/spend/taboola/{{ds}}/*"
+  },
+  "tapjoy_monitor_spend_report": {
+    "prod": "reports/spend_monitor/tapjoy/{{ds}}/*",
+    "staging": "reports_staging/spend_monitor/tapjoy/{{ds}}/*"
+  },
+  "tapjoy_spend_report": {
+    "prod": "reports/spend/tapjoy/{{ds}}/*",
+    "staging": "reports_staging/spend/tapjoy/{{ds}}/*"
+  },
+  "taurus_spend_report": {
+    "prod": "reports/spend/taurus/{{ds}}/*",
+    "staging": "reports_staging/spend/taurus/{{ds}}/*"
+  },
+  "tiktok_spend_report": {
+    "prod": "reports/spend/tiktok/{{ds}}/*",
+    "staging": "reports_staging/spend/tiktok/{{ds}}/*"
+  },
+  "torox_spend_report": {
+    "prod": "reports/spend/torox/{{ds}}/*",
+    "staging": "reports_staging/spend/torox/{{ds}}/*"
+  },
+  "tvsci_spend_report": {
+    "prod": "reports/spend/tvsci/{{ds}}/*",
+    "staging": "reports_staging/spend/tvsci/{{ds}}/*"
+  },
+  "twitter_spend_report": {
+    "prod": "reports/spend/twitter/{{ds}}/*",
+    "staging": "reports_staging/spend/twitter/{{ds}}/*"
+  },
+  "unity_income_report": {
+    "prod": "reports/income/unity/{{ds}}/*",
+    "staging": "reports_staging/income/unity/{{ds}}/*"
+  },
+  "unity_spend_report": {
+    "prod": "reports/income/unity/{{ds}}/*",
+    "staging": "reports_staging/income/unity/{{ds}}/*"
+  },
+  "vungle_income_report": {
+    "prod": "reports/income/vungle/{{ds}}/*",
+    "staging": "reports_staging/income/vungle/{{ds}}/*"
+  },
+  "vungle_spend_report": {
+    "prod": "reports/income/vungle/{{ds}}/*",
+    "staging": "reports_staging/income/vungle/{{ds}}/*"
+  },
+  "youappi_spend_report": {
+    "prod": "reports/spend/youappi/{{ds}}/*",
+    "staging": "reports_staging/spend/youappi/{{ds}}/*"
+  }
+}
