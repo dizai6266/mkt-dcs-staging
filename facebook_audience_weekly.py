@@ -6,6 +6,10 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install httpx
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 1. Setup & Imports
 
@@ -31,7 +35,7 @@ importlib.reload(helper)
 # 设置 feishu-notify（路径已在 config_manager 中配置）
 Notifier = setup_feishu_notify()
 
-from databricks import sql
+from databricks.sql import connect as databricks_connect
 from facebook_business.adobjects.customaudience import CustomAudience
 from facebook_business.api import FacebookAdsApi
 
@@ -80,7 +84,7 @@ def do_facebook_audience_weekly_process(**context):
  
     FacebookAdsApi.init(access_token=access_token)
 
-    conn = sql.connect(
+    conn = databricks_connect(
         server_hostname=db_conn_conf.get('server_hostname'),
         http_path=db_conn_conf.get('http_path'),
         access_token=db_conn_conf.get('access_token')

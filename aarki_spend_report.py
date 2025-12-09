@@ -6,6 +6,10 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install httpx
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 1. Setup & Imports
 

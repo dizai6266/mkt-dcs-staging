@@ -6,6 +6,10 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install httpx
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 1. Setup & Imports
 
@@ -32,7 +36,6 @@ importlib.reload(helper)
 Notifier = setup_feishu_notify()
 
 import sqlalchemy as sa
-from databricks import sql
 from facebook_business.adobjects.customaudience import CustomAudience
 from facebook_business.api import FacebookAdsApi
 
