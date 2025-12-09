@@ -47,6 +47,7 @@ print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 
 # --- [配置参数] ---
 _AD_NETWORK = 'appsflyer_spend'
+_AD_TYPE = 'spend'
 _DATE_RANGE = 7
 
 # 获取 Widget 参数
@@ -106,7 +107,7 @@ def fetch_spend_report_task(ds: str):
 
     helper.save_report(
         ad_network=_AD_NETWORK, 
-        ad_type=helper._AD_TYPE_SPEND, 
+        ad_type=_AD_TYPE, 
         report=response.text, 
         exc_ds=ds, 
         start_ds=start_ds, 
@@ -148,7 +149,7 @@ if env_mode != 'staging':
 else:
     try:
         base_root = getattr(helper, "_DATA_BASE_PATH", None) or os.path.join(os.getcwd(), "data_output")
-        preview_root = os.path.join(base_root, helper._AD_TYPE_SPEND, _AD_NETWORK)
+        preview_root = os.path.join(base_root, _AD_TYPE, _AD_NETWORK)
         print(f"🔎 Scanning preview files under: {preview_root}")
 
         if not os.path.exists(preview_root):

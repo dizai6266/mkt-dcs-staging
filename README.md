@@ -13,8 +13,7 @@ mkt-dcs-staging/
 ├── README.md                      # 本文档
 ├── NOTEBOOK_GUIDELINES.md         # Notebook 开发规范
 ├── config/
-│   ├── variables.json             # 本地配置文件（敏感信息，不提交 Git）
-│   └── dag_id_to_s3_paths.json    # DAG ID 到 S3 路径的映射配置
+│   └── dag_id_to_s3_paths.json    # S3 路径参考文档（仅供参考，代码不依赖）
 ├── utils/
 │   ├── config_manager.py          # 配置管理器（环境模式、密钥读取）
 │   └── helper.py                  # 通用工具函数（S3 上传、报告保存等）
@@ -63,26 +62,47 @@ ENV_MODE=prod
 
 配置加载优先级（从高到低）：
 
-1. **Databricks Secrets**（生产环境推荐）
-2. **环境变量**（CI/CD 推荐）
-3. **本地文件 `config/variables.json`**（本地开发）
+1. **Databricks Secrets**（根据环境自动选择 scope）✅ 推荐
+   - staging: `dcs-staging-secret`
+   - prod: `dcs-prod-secret`
+2. **环境变量**（CI/CD 场景）
+3. **本地文件 `config/variables.json`**（本地开发 fallback）
+
+### S3 路径规则
+
+S3 路径由代码内置逻辑生成，**不依赖配置文件**：
+
+```
+# staging 环境
+reports_staging/{ad_type}/{ad_network}/{date}/
+
+# prod 环境
+reports/{ad_type}/{ad_network}/{date}/
+```
+
+例如：`reports_staging/spend/aarki/2024-01-15/`
 
 ### 配置格式
 
-#### Databricks Secrets
+#### Databricks Secrets（推荐）
 
-在 Databricks 中创建 Secret Scope `airflow_secrets`：
+敏感配置存储在 Databricks Secret Scope 中，根据环境自动选择：
+
+| 环境 | Secret Scope |
+|------|--------------|
+| staging | `dcs-staging-secret` |
+| prod | `dcs-prod-secret` |
 
 ```bash
-# 使用 Databricks CLI
-databricks secrets create-scope --scope airflow_secrets
+# 查看已有 secrets
+databricks secrets list --scope dcs-staging-secret  # staging
+databricks secrets list --scope dcs-prod-secret     # prod
 
-# 添加 Secret（JSON 格式）
-databricks secrets put --scope airflow_secrets --key secret_aws_s3_prod
-# 然后输入 JSON 内容
+# 添加新 Secret（JSON 格式）
+databricks secrets put --scope dcs-staging-secret --key secret_new_config
 ```
 
-#### 环境变量
+#### 环境变量（备用）
 
 环境变量名需大写，格式为 `SECRET_{CONFIG_NAME}`：
 
@@ -99,7 +119,7 @@ export SECRET_APPSFLYER_SPEND='{"token":"xxx"}'
 export SECRET_APPLE_SEARCH='{"client_id":"xxx","client_secret":"xxx","org_ids":[...]}'
 ```
 
-#### 本地配置文件
+#### 本地配置文件（本地开发 fallback）
 
 创建 `config/variables.json`（**注意：不要提交到 Git**）：
 
@@ -117,17 +137,6 @@ export SECRET_APPLE_SEARCH='{"client_id":"xxx","client_secret":"xxx","org_ids":[
   },
   "secret_env": {
     "feishu_botid": "YOUR_FEISHU_BOT_ID"
-  },
-  "secret_appsflyer_spend": {
-    "token": "YOUR_TOKEN"
-  },
-  "secret_apple_search": {
-    "client_id": "xxx",
-    "client_secret": "xxx",
-    "org_ids": [
-      ["org_id_1", true],
-      ["org_id_2", false]
-    ]
   }
 }
 ```
@@ -150,14 +159,17 @@ export SECRET_APPLE_SEARCH='{"client_id":"xxx","client_secret":"xxx","org_ids":[
 
 ### 2. 配置 Secrets
 
-```bash
-# 创建 Secret Scope
-databricks secrets create-scope --scope airflow_secrets
+Secrets 根据环境存储在不同的 scope 中：
+- staging: `dcs-staging-secret`
+- prod: `dcs-prod-secret`
 
-# 添加必要的 Secrets
-databricks secrets put --scope airflow_secrets --key secret_aws_s3_prod
-databricks secrets put --scope airflow_secrets --key secret_env
-# ... 其他配置
+如需添加新配置：
+```bash
+# staging 环境
+databricks secrets put --scope dcs-staging-secret --key secret_new_config
+
+# prod 环境
+databricks secrets put --scope dcs-prod-secret --key secret_new_config
 ```
 
 ### 3. 创建 Job

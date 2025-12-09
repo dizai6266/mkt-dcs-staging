@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import base64
 os.environ['ENV_MODE'] = 'staging'
 
 # 配置日志
@@ -14,10 +15,15 @@ DEFAULT_ENV_MODE = 'staging'  # 修改这里即可改变所有报告的默认环
 # feishu-notify 路径配置
 FEISHU_NOTIFY_PATH_PROD = '/Workspace/Repos/Shared/feishu-notify'
 FEISHU_NOTIFY_PATH_STAGING = '/Workspace/Users/dizai@joycastle.mobi/feishu-notify'
+
+# Databricks Secret Scope 名称（根据环境模式自动选择）
+SECRET_SCOPE_PROD = 'dcs-prod-secret'
+SECRET_SCOPE_STAGING = 'dcs-staging-secret'
 # ========================
 
 # 检测运行环境
 IS_DATABRICKS = False
+dbutils = None
 try:
     from pyspark.dbutils import DBUtils
     from pyspark.sql import SparkSession
@@ -89,6 +95,17 @@ def get_feishu_notify_path():
         return FEISHU_NOTIFY_PATH_PROD
     return FEISHU_NOTIFY_PATH_STAGING
 
+def get_secret_scope():
+    """
+    根据环境模式获取 Databricks Secret Scope 名称
+    - prod: dcs-prod-secret
+    - staging: dcs-staging-secret
+    """
+    env_mode = get_env_mode()
+    if env_mode == 'prod':
+        return SECRET_SCOPE_PROD
+    return SECRET_SCOPE_STAGING
+
 def setup_feishu_notify():
     """
     设置 feishu-notify 模块路径并导入 Notifier
@@ -116,23 +133,33 @@ def get_secret_config(config_name):
     """
     统一的配置获取入口
     优先级（按顺序尝试，全部失败才报错）:
-    1. Databricks Secrets（如果可用）
+    1. Databricks Secrets（如果可用）- 使用 SECRET_SCOPE
     2. 环境变量 (SECRET_NAME)
     3. 本地文件 variables.json (fallback)
+    
+    Args:
+        config_name: 配置名称，会自动加上 'secret_' 前缀去查找
+                     例如: config_name='env' -> 查找 key='secret_env'
     """
     full_key = f'secret_{config_name}'
     errors = []
     
     # --- 优先级 1: Databricks Secrets ---
-    if IS_DATABRICKS:
+    if IS_DATABRICKS and dbutils:
+        scope = get_secret_scope()
         try:
-            secret_val = dbutils.secrets.get(scope="airflow_secrets", key=full_key)
+            secret_val = dbutils.secrets.get(scope=scope, key=full_key)
             if secret_val:
-                logger.info(f"✅ Loading config {config_name} from Databricks Secrets: {full_key}")
-                return json.loads(secret_val)
+                logger.info(f"✅ Loading config '{config_name}' from Databricks Secrets [{scope}]: {full_key}")
+                # 配置已经是解码后的 JSON 字符串，直接解析
+                try:
+                    return json.loads(secret_val)
+                except json.JSONDecodeError:
+                    # 如果不是 JSON，直接返回字符串值
+                    return secret_val
         except Exception as e:
             # Databricks secrets.get 如果 key 不存在会抛错，这是正常的
-            logger.debug(f"Databricks secret {full_key} not found: {e}")
+            logger.debug(f"Databricks secret {full_key} not found in scope '{scope}': {e}")
             errors.append(f"Databricks secret not found: {e}")
 
     # --- 优先级 2: 环境变量 ---
@@ -140,17 +167,18 @@ def get_secret_config(config_name):
     env_val = os.getenv(env_key)
     
     if env_val:
-        logger.info(f"✅ Loading config {config_name} from Environment Variable: {env_key}")
-        return json.loads(env_val)
+        logger.info(f"✅ Loading config '{config_name}' from Environment Variable: {env_key}")
+        try:
+            return json.loads(env_val)
+        except json.JSONDecodeError:
+            # 如果不是 JSON，直接返回字符串值
+            return env_val
     else:
         errors.append(f"Env var {env_key} not set")
 
     # --- 优先级 3: 本地文件 variables.json (fallback) ---
     try:
-        # 查找项目根目录
         project_root = _find_project_root()
-        
-        # 只查找 config/variables.json（相对路径）
         json_path = os.path.join(project_root, 'config', 'variables.json')
         
         if os.path.exists(json_path):
@@ -159,8 +187,18 @@ def get_secret_config(config_name):
                     all_vars = json.load(f)
                 
                 if full_key in all_vars:
-                    logger.info(f"✅ Loading config {config_name} from local file: {json_path}")
-                    return all_vars[full_key]
+                    logger.info(f"✅ Loading config '{config_name}' from local file: {json_path}")
+                    val = all_vars[full_key]
+                    
+                    # 如果值是字符串，尝试解析为 JSON
+                    if isinstance(val, str):
+                        try:
+                            return json.loads(val)
+                        except json.JSONDecodeError:
+                            return val
+                    return val
+                else:
+                    errors.append(f"Key '{full_key}' not found in {json_path}")
             except Exception as e:
                 logger.debug(f"Error reading {json_path}: {e}")
                 errors.append(f"Local file read error: {e}")
@@ -173,9 +211,88 @@ def get_secret_config(config_name):
         errors.append(f"Local file read error: {e}")
 
     # --- 所有方式都失败，抛出异常 ---
-    error_msg = f'Miss the config of {config_name}. Tried: {"; ".join(errors)}'
+    error_msg = f"❌ Missing config '{config_name}'. Tried: {'; '.join(errors)}"
     logger.error(error_msg)
     raise ValueError(error_msg)
+
+
+def get_config(key):
+    """
+    通用配置获取入口（不自动添加 secret_ 前缀）
+    用于获取 proxy_xxx 等非 secret 类型的配置
+    
+    优先级:
+    1. Databricks Secrets（如果可用）- 使用 SECRET_SCOPE
+    2. 环境变量
+    3. 本地文件 variables.json (fallback)
+    
+    Args:
+        key: 配置的完整 key 名称，如 'proxy_contact@joycastle.mobi'
+    """
+    errors = []
+    
+    # --- 优先级 1: Databricks Secrets ---
+    if IS_DATABRICKS and dbutils:
+        scope = get_secret_scope()
+        try:
+            secret_val = dbutils.secrets.get(scope=scope, key=key)
+            if secret_val:
+                logger.info(f"✅ Loading config '{key}' from Databricks Secrets [{scope}]")
+                try:
+                    return json.loads(secret_val)
+                except json.JSONDecodeError:
+                    return secret_val
+        except Exception as e:
+            logger.debug(f"Databricks secret '{key}' not found in scope '{scope}': {e}")
+            errors.append(f"Databricks secret not found: {e}")
+
+    # --- 优先级 2: 环境变量 ---
+    env_key = key.upper().replace('@', '_').replace('.', '_')
+    env_val = os.getenv(env_key)
+    
+    if env_val:
+        logger.info(f"✅ Loading config '{key}' from Environment Variable: {env_key}")
+        try:
+            return json.loads(env_val)
+        except json.JSONDecodeError:
+            return env_val
+    else:
+        errors.append(f"Env var {env_key} not set")
+
+    # --- 优先级 3: 本地文件 variables.json (fallback) ---
+    try:
+        project_root = _find_project_root()
+        json_path = os.path.join(project_root, 'config', 'variables.json')
+        
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r') as f:
+                    all_vars = json.load(f)
+                
+                if key in all_vars:
+                    logger.info(f"✅ Loading config '{key}' from local file: {json_path}")
+                    val = all_vars[key]
+                    if isinstance(val, str):
+                        try:
+                            return json.loads(val)
+                        except json.JSONDecodeError:
+                            return val
+                    return val
+                else:
+                    errors.append(f"Key '{key}' not found in {json_path}")
+            except Exception as e:
+                errors.append(f"Local file read error: {e}")
+        else:
+            errors.append(f"Local file not found: {json_path}")
+
+    except Exception as e:
+        errors.append(f"Local file read error: {e}")
+
+    # --- 所有方式都失败，抛出异常 ---
+    error_msg = f"❌ Missing config '{key}'. Tried: {'; '.join(errors)}"
+    logger.error(error_msg)
+    raise ValueError(error_msg)
+
 
 def get_s3_config():
     """
@@ -192,16 +309,52 @@ def get_s3_config():
         logger.info("🧪 [STAGING MODE] Loading staging S3 config")
         return get_secret_config('aws_s3_staging')
 
+def build_s3_path(s3_subpath: str, exc_ds: str = None):
+    """
+    根据环境模式构建 S3 路径
+    
+    路径规则：
+    - prod:    reports/{s3_subpath}/{exc_ds}
+    - staging: reports_staging/{s3_subpath}/{exc_ds}
+    
+    Args:
+        s3_subpath: S3 子路径，如 'spend/aarki', 'iap/amazon', 'income/facebook'
+        exc_ds: 执行日期 (YYYY-MM-DD)
+    
+    Returns:
+        完整的 S3 路径字符串
+    
+    Example:
+        >>> build_s3_path('spend/aarki', '2024-01-15')
+        'reports_staging/spend/aarki/2024-01-15'  # staging 环境
+        'reports/spend/aarki/2024-01-15'          # prod 环境
+    """
+    env_mode = get_env_mode()
+    
+    # 根据环境选择前缀
+    if env_mode == 'prod':
+        prefix = 'reports'
+    else:
+        prefix = 'reports_staging'
+    
+    # 构建路径
+    if exc_ds:
+        return f"{prefix}/{s3_subpath}/{exc_ds}"
+    else:
+        return f"{prefix}/{s3_subpath}"
+
+
+# ============ 以下为兼容旧代码的函数（deprecated） ============
+
 def get_dag_s3_path_config():
     """
-    读取 dag_id_to_s3_paths.json 配置文件
+    [DEPRECATED] 读取 dag_id_to_s3_paths.json 配置文件
+    建议使用 build_s3_path() 替代
+    
     返回字典：{dag_id: s3_path_template}
     """
     try:
-        # 查找项目根目录
         project_root = _find_project_root()
-        
-        # 读取 config/dag_id_to_s3_paths.json
         config_path = os.path.join(project_root, 'config', 'dag_id_to_s3_paths.json')
         
         if os.path.exists(config_path):
@@ -214,17 +367,15 @@ def get_dag_s3_path_config():
         logger.warning(f"⚠️ Failed to load dag_id_to_s3_paths.json: {e}")
         return {}
 
+
 def get_s3_path_for_dag(dag_id: str, exc_ds: str = None):
     """
-    根据 DAG ID 和环境模式获取 S3 路径模板，并替换变量
-    
-    支持两种配置方式：
-    1. 简单配置：{"dag_id": "reports/spend/xxx/{{ds}}/*"} - 所有环境共用
-    2. 环境区分：{"dag_id": {"prod": "reports/spend/xxx/{{ds}}/*", "staging": "staging/reports/spend/xxx/{{ds}}/*"}}
+    [DEPRECATED] 根据 DAG ID 获取 S3 路径
+    建议使用 build_s3_path(s3_subpath, exc_ds) 替代
     
     Args:
         dag_id: DAG ID 或 job name
-        exc_ds: 执行日期 (YYYY-MM-DD)，用于替换 {{ds}}
+        exc_ds: 执行日期 (YYYY-MM-DD)
     
     Returns:
         S3 路径字符串，如果找不到配置则返回 None
@@ -238,38 +389,26 @@ def get_s3_path_for_dag(dag_id: str, exc_ds: str = None):
     
     path_template_config = path_config[dag_id]
     
-    # 判断配置格式：如果是字典，说明区分了环境；如果是字符串，所有环境共用
+    # 判断配置格式
     path_template = None
     if isinstance(path_template_config, dict):
-        # 环境区分配置
         if env_mode in path_template_config:
             path_template = path_template_config[env_mode]
         elif 'default' in path_template_config:
-            # 如果没有对应环境的配置，使用 default
             path_template = path_template_config['default']
-            logger.warning(f"⚠️ No {env_mode} path config for {dag_id}, using default")
         else:
-            logger.warning(f"⚠️ No {env_mode} or default path config for {dag_id}")
             return None
     else:
-        # 简单配置：所有环境共用
         path_template = path_template_config
     
-    # 确保 path_template 是字符串类型
     if not isinstance(path_template, str):
-        logger.error(f"❌ Invalid path_template type for {dag_id}: {type(path_template)}, expected str")
-        logger.error(f"   path_template_config: {path_template_config}")
-        logger.error(f"   env_mode: {env_mode}")
-        logger.error(f"   path_template value: {path_template}")
-        if isinstance(path_template, dict):
-            logger.error(f"   path_template keys: {list(path_template.keys())}")
         return None
     
     # 替换模板变量
     if exc_ds:
         path_template = path_template.replace('{{ds}}', exc_ds)
     
-    # 移除末尾的 /* 通配符（如果存在），因为我们要上传具体文件
+    # 移除末尾的 /* 通配符
     if path_template.endswith('/*'):
         path_template = path_template[:-2]
     
@@ -298,6 +437,7 @@ def main():
     # 1. 环境信息
     print("\n🔧 Environment Information:")
     print(f"  - IS_DATABRICKS: {IS_DATABRICKS}")
+    print(f"  - SECRET_SCOPE: {get_secret_scope()}")
     print(f"  - DEFAULT_ENV_MODE: {DEFAULT_ENV_MODE}")
     
     # 显示环境变量的原始值（在 init_env_mode 之前）

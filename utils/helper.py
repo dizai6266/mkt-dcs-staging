@@ -11,7 +11,7 @@ import pandas
 import boto3
 
 # 引入适配后的配置管理
-from .config_manager import get_s3_config, get_secret_config, get_env_mode, get_s3_path_for_dag
+from .config_manager import get_s3_config, get_secret_config, get_env_mode, build_s3_path
 
 _AD_TYPE_INCOME = "income"
 _AD_TYPE_SPEND = "spend"
@@ -42,15 +42,15 @@ def get_cfg(cfg_name: str):
     # 尝试直接获取同名 secret (例如 'appsflyer')
     return get_secret_config(cfg_name)
 
-def upload_data_to_s3(data: bytes, dag_id: str, exc_ds: str = None, filename: str = None):
+def upload_data_to_s3(data: bytes, s3_subpath: str, exc_ds: str = None, filename: str = None):
     """
     直接从内存数据上传到 S3（压缩为 Gzip）
 
     Args:
         data: 原始数据（bytes）
-        dag_id: DAG ID，用于生成 S3 路径模板
-        exc_ds: 执行日期，用于替换路径模板中的 {{ds}}
-        filename: 可选的文件名（用于生成 S3 路径）
+        s3_subpath: S3 子路径，如 'spend/aarki', 'iap/amazon'
+        exc_ds: 执行日期 (YYYY-MM-DD)
+        filename: 可选的文件名
     """
     if not data:
         logging.warning("⚠️ No data to upload")
@@ -63,15 +63,12 @@ def upload_data_to_s3(data: bytes, dag_id: str, exc_ds: str = None, filename: st
         logging.info(f"🔧 [DEV MODE] Skip uploading data to S3")
         return
 
-    # 获取 S3 路径
-    s3_path_template = get_s3_path_for_dag(dag_id, exc_ds)
-    if not s3_path_template:
-        logging.error(f"❌ Cannot get S3 path template for {dag_id}")
-        return
+    # 构建 S3 路径（使用新的 build_s3_path 函数）
+    s3_path_template = build_s3_path(s3_subpath, exc_ds)
 
     # 生成文件名
     if not filename:
-        filename = f"{dag_id}_{exc_ds}.jsonl"
+        filename = f"{s3_subpath.replace('/', '_')}_{exc_ds}.jsonl"
 
     s3_path = f"{s3_path_template}/{filename}"
     s3_path_gz = s3_path + '.gz'
@@ -307,16 +304,16 @@ def save_report(ad_network: str, ad_type: str, report=None, response=None, repor
         print(f"✅ Saved preview ({preview_size} bytes)")
 
         # 同时上传完整数据到 S3
-        dag_id = f"{ad_network}_{ad_type}_report"  # 动态生成 DAG ID
-        upload_data_to_s3(upload_data, dag_id, exc_ds, filename)
+        s3_subpath = f"{ad_type}/{ad_network}"  # 例如: spend/aarki, iap/amazon
+        upload_data_to_s3(upload_data, s3_subpath, exc_ds, filename)
 
         # 返回本地 preview 路径，便于上游做本地预览
         return preview_path
 
     else:  # prod
         # prod: 直接上传完整数据到 S3
-        dag_id = f"{ad_network}_{ad_type}_report"  # 动态生成 DAG ID
-        upload_data_to_s3(upload_data, dag_id, exc_ds, filename)
+        s3_subpath = f"{ad_type}/{ad_network}"  # 例如: spend/aarki, iap/amazon
+        upload_data_to_s3(upload_data, s3_subpath, exc_ds, filename)
         return None
 
 def _save_report_streaming(ad_network: str, ad_type: str, response, filename: str, exc_ds: str, env_mode: str):
@@ -329,8 +326,10 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
     import tempfile
     import shutil
     
+    # 构建 S3 子路径
+    s3_subpath = f"{ad_type}/{ad_network}"  # 例如: spend/aarki, iap/amazon
+    
     # 获取 S3 配置（如果需要上传）
-    dag_id = f"{ad_network}_{ad_type}_report"
     s3_config = None
     if env_mode in ['staging', 'prod']:
         s3_config = get_s3_config()
@@ -363,10 +362,8 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
     s3_client = None
     
     if env_mode in ['staging', 'prod']:
-        s3_path_template = get_s3_path_for_dag(dag_id, exc_ds)
-        if not s3_path_template:
-            raise ValueError(f"Cannot get S3 path template for {dag_id}")
-        # 去掉 .jsonl 后缀，只保留 .gz
+        # 使用 build_s3_path 构建路径
+        s3_path_template = build_s3_path(s3_subpath, exc_ds)
         s3_key = f"{s3_path_template}/{filename}.gz"
         
         session = boto3.Session(
