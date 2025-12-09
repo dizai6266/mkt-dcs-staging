@@ -9,14 +9,13 @@ os.environ['ENV_MODE'] = 'staging'
 logger = logging.getLogger(__name__)
 
 # ===== 集中配置区域 =====
-# 在这里修改默认环境模式：'dev'、'staging' 或 'prod'
+# 在这里修改默认环境模式：'staging' 或 'prod'
 # 如果设置了环境变量 ENV_MODE，会优先使用环境变量
 DEFAULT_ENV_MODE = 'staging'  # 修改这里即可改变所有报告的默认环境模式
-FORCE_DEFAULT_ENV_MODE = False  # 设置为 True 可强制使用 DEFAULT_ENV_MODE，忽略环境变量
 
 # feishu-notify 路径配置
 FEISHU_NOTIFY_PATH_PROD = '/Workspace/Repos/Shared/feishu-notify'
-FEISHU_NOTIFY_PATH_DEV = '/Workspace/Users/dizai@joycastle.mobi/feishu-notify'
+FEISHU_NOTIFY_PATH_STAGING = '/Workspace/Users/dizai@joycastle.mobi/feishu-notify'
 # ========================
 
 # 检测运行环境
@@ -53,26 +52,19 @@ def _find_project_root():
 def init_env_mode():
     """
     初始化环境模式
-    如果设置了 FORCE_DEFAULT_ENV_MODE=True，强制使用 DEFAULT_ENV_MODE
-    否则，如果环境变量 ENV_MODE 未设置，则使用 DEFAULT_ENV_MODE
+    如果环境变量 ENV_MODE 未设置，则使用 DEFAULT_ENV_MODE
     此函数在模块加载时自动调用
     """
-    force_default = os.getenv('FORCE_DEFAULT_ENV_MODE', str(FORCE_DEFAULT_ENV_MODE)).lower() == 'true'
-    
-    if force_default:
-        os.environ['ENV_MODE'] = DEFAULT_ENV_MODE
-        logger.info(f"🔧 FORCE_DEFAULT_ENV_MODE=True, using DEFAULT_ENV_MODE: {DEFAULT_ENV_MODE}")
-    elif not os.getenv('ENV_MODE'):
+    if not os.getenv('ENV_MODE'):
         os.environ['ENV_MODE'] = DEFAULT_ENV_MODE
         logger.info(f"🔧 ENV_MODE not set, using default: {DEFAULT_ENV_MODE}")
     else:
         existing_env_mode = os.getenv('ENV_MODE')
-        logger.info(f"🔧 ENV_MODE from environment: {existing_env_mode} (DEFAULT_ENV_MODE={DEFAULT_ENV_MODE})")
-        logger.info(f"💡 Tip: Set FORCE_DEFAULT_ENV_MODE=true to use DEFAULT_ENV_MODE instead")
+        logger.info(f"🔧 ENV_MODE from environment: {existing_env_mode}")
 
 def get_env_mode():
     """
-    获取环境模式：prod、staging 或 dev
+    获取环境模式：prod 或 staging
     默认返回 DEFAULT_ENV_MODE（可通过修改文件顶部 DEFAULT_ENV_MODE 变量来改变）
     """
     # 确保环境模式已初始化
@@ -80,7 +72,7 @@ def get_env_mode():
         init_env_mode()
     
     env_mode = os.getenv('ENV_MODE', DEFAULT_ENV_MODE).lower()
-    if env_mode not in ['prod', 'staging', 'dev']:
+    if env_mode not in ['prod', 'staging']:
         logger.warning(f"⚠️ Invalid ENV_MODE: {env_mode}, defaulting to '{DEFAULT_ENV_MODE}'")
         return DEFAULT_ENV_MODE
     return env_mode
@@ -92,12 +84,12 @@ def get_feishu_notify_path():
     """
     获取 feishu-notify 模块的路径
     - prod: 使用共享路径 FEISHU_NOTIFY_PATH_PROD
-    - 其他: 使用开发路径 FEISHU_NOTIFY_PATH_DEV
+    - staging: 使用开发路径 FEISHU_NOTIFY_PATH_STAGING
     """
     env_mode = get_env_mode()
     if env_mode == 'prod':
         return FEISHU_NOTIFY_PATH_PROD
-    return FEISHU_NOTIFY_PATH_DEV
+    return FEISHU_NOTIFY_PATH_STAGING
 
 def setup_feishu_notify():
     """
@@ -220,31 +212,15 @@ def get_s3_config():
     根据环境模式获取 S3 配置
     - prod: 返回 aws_s3_prod 配置
     - staging: 返回 aws_s3_staging 配置
-    - dev: 返回模拟配置（不上传）
     """
     env_mode = get_env_mode()
     
-    if env_mode == 'dev':
-        logger.info("🔧 [DEV MODE] Using mock S3 config (no upload)")
-        return {
-            'aws_key': 'DEV_MOCK_KEY',
-            'aws_secret': 'DEV_MOCK_SECRET',
-            'bucket': 'dev-mock-bucket'
-        }
-    elif env_mode == 'prod':
+    if env_mode == 'prod':
         logger.info("🚀 [PROD MODE] Loading prod S3 config")
         return get_secret_config('aws_s3_prod')
-    elif env_mode == 'staging':
+    else:
         logger.info("🧪 [STAGING MODE] Loading staging S3 config")
         return get_secret_config('aws_s3_staging')
-    else:
-        # 不应该到这里，但为了安全起见
-        logger.warning(f"⚠️ Unknown env mode: {env_mode}, using dev mock config")
-        return {
-            'aws_key': 'DEV_MOCK_KEY',
-            'aws_secret': 'DEV_MOCK_SECRET',
-            'bucket': 'dev-mock-bucket'
-        }
 
 def get_dag_s3_path_config():
     """
@@ -353,12 +329,10 @@ def main():
     print("\n🔧 Environment Information:")
     print(f"  - IS_DATABRICKS: {IS_DATABRICKS}")
     print(f"  - DEFAULT_ENV_MODE: {DEFAULT_ENV_MODE}")
-    print(f"  - FORCE_DEFAULT_ENV_MODE: {FORCE_DEFAULT_ENV_MODE}")
     
     # 显示环境变量的原始值（在 init_env_mode 之前）
     env_mode_before_init = os.getenv('ENV_MODE')
     print(f"  - ENV_MODE (env var, before init): {env_mode_before_init if env_mode_before_init else 'Not set'}")
-    print(f"  - FORCE_DEFAULT_ENV_MODE (env var): {os.getenv('FORCE_DEFAULT_ENV_MODE', 'Not set')}")
     
     env_mode = get_env_mode()
     print(f"  - Current ENV_MODE (resolved): {env_mode}")
@@ -435,14 +409,10 @@ def main():
     print("\n🧪 Environment Mode Test:")
     print(f"  - Current Mode: {env_mode}")
     print(f"  - S3 Config Source: ", end="")
-    if env_mode == 'dev':
-        print("Mock (no upload)")
-    elif env_mode == 'prod':
+    if env_mode == 'prod':
         print("aws_s3_prod")
-    elif env_mode == 'staging':
-        print("aws_s3_staging")
     else:
-        print("Unknown")
+        print("aws_s3_staging")
     
     print("\n" + "=" * 80)
     print("✅ Test Complete")

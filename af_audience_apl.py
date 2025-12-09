@@ -19,7 +19,6 @@ import time
 from datetime import datetime, timedelta
 import logging
 import requests
-import json
 import sys
 import os
 
@@ -35,8 +34,6 @@ importlib.reload(helper)
 
 # 设置 feishu-notify（路径已在 config_manager 中配置）
 Notifier = setup_feishu_notify()
-
-from databricks.sql import connect as databricks_connect
 
 print(f"🔧 Environment Mode: {get_env_mode()}")
 print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
@@ -80,13 +77,6 @@ def do_af_audience_process_apl(**context):
     secret_conf = helper.get_cfg('af_audience_apl')
     audience_infos = secret_conf.get('audience_infos')
 
-    db_conn_conf = secret_conf['db_conn_conf']
-    conn = databricks_connect(
-        server_hostname=db_conn_conf.get('server_hostname'),
-        http_path=db_conn_conf.get('http_path'),
-        access_token=db_conn_conf.get('access_token')
-    )
-
     for target_audience, audience_detail_info in audience_infos.items():
         api_token = audience_detail_info.get('api_token')
         items = audience_detail_info.get('items')
@@ -122,14 +112,11 @@ def do_af_audience_process_apl(**context):
                     print(response.text) 
                     time.sleep(30.)
 
-                cursor = conn.cursor()
-                cursor.execute(sql_text)
-                sql_result = cursor.fetchall()
-                cursor.close()
+                sql_result = spark.sql(sql_text).collect()
 
                 identities = list()
-                for item in sql_result:
-                    identities.append(item[0].strip() if item[0] else '')
+                for row in sql_result:
+                    identities.append(row[0].strip() if row[0] else '')
                 logging.info(f'number of devices: {len(identities)}')
 
                 devices = list()
@@ -155,8 +142,6 @@ def do_af_audience_process_apl(**context):
                     print(response.text) 
                     curstep += stepnum
                     time.sleep(.5)
-
-    conn.close()
 
 
 def upload_af_audience_apl_task(ds: str):

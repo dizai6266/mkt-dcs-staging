@@ -20,7 +20,7 @@ mkt-dcs-staging/
 │   └── helper.py                  # 通用工具函数（S3 上传、报告保存等）
 ├── *_spend_report.py              # 消耗报告 Notebooks
 ├── *_audience.py                  # 受众上传 Notebooks
-└── data_output/                   # 本地数据输出目录（staging/dev 模式）
+└── data_output/                   # 本地数据输出目录（staging 模式）
 ```
 
 ---
@@ -29,41 +29,30 @@ mkt-dcs-staging/
 
 ### 环境模式
 
-项目支持三种环境模式：
+项目支持两种环境模式：
 
 | 模式 | 说明 | S3 配置 | 本地文件 |
 |------|------|---------|----------|
-| `dev` | 开发模式 | 不上传 S3 | 保存完整数据到本地 |
 | `staging` | 测试模式 | 上传到 staging bucket | 保存 5MB 预览到本地 |
 | `prod` | 生产模式 | 上传到 prod bucket | 不保存本地文件 |
 
 ### 设置环境模式
 
-#### 方式一：修改 `config_manager.py`（推荐本地开发）
+#### 方式一：修改 `config_manager.py`
 
 编辑 `utils/config_manager.py` 文件顶部的配置：
 
 ```python
 # ===== 集中配置区域 =====
-DEFAULT_ENV_MODE = 'staging'  # 修改这里：'dev'、'staging' 或 'prod'
-FORCE_DEFAULT_ENV_MODE = False  # 设置为 True 可强制使用 DEFAULT_ENV_MODE
+DEFAULT_ENV_MODE = 'staging'  # 修改这里：'staging' 或 'prod'
 # ========================
 ```
 
 #### 方式二：设置环境变量（Databricks 推荐）
 
 ```bash
-# Linux/macOS
-export ENV_MODE=staging
-
-# 或在 Databricks Cluster 的环境变量中设置
-```
-
-#### 方式三：强制覆盖（临时调试）
-
-```bash
-export FORCE_DEFAULT_ENV_MODE=true
-export ENV_MODE=dev
+# 在 Databricks Cluster 的环境变量中设置
+ENV_MODE=prod
 ```
 
 ---
@@ -141,60 +130,6 @@ export SECRET_APPLE_SEARCH='{"client_id":"xxx","client_secret":"xxx","org_ids":[
     ]
   }
 }
-```
-
----
-
-## 🚀 本地开发
-
-### 1. 克隆项目
-
-```bash
-git clone https://github.com/dizai6266/mkt-dcs-staging.git
-cd mkt-dcs-staging/mkt-dcs-staging
-```
-
-### 2. 安装依赖
-
-```bash
-pip install pandas boto3 requests
-# 根据需要安装其他依赖
-pip install facebook-business  # Facebook Audience
-pip install databricks-sql-connector  # Databricks SQL
-```
-
-### 3. 配置环境
-
-```bash
-# 创建本地配置文件
-cp config/variables.json.example config/variables.json
-# 编辑 variables.json 填入真实配置
-
-# 设置为开发模式
-# 编辑 utils/config_manager.py，设置 DEFAULT_ENV_MODE = 'dev'
-```
-
-### 4. 运行 Notebook
-
-```bash
-# 使用 Python 直接运行（会执行 Notebook 中的代码）
-python appsflyer_spend_report.py
-
-# 或在 Jupyter/Databricks 中打开运行
-```
-
-### 5. 检查输出
-
-开发模式下，数据会保存到 `data_output/` 目录：
-
-```
-data_output/
-├── spend/
-│   └── appsflyer_spend/
-│       └── 2024-01-15/
-│           └── appsflyer_spend_2024-01-08_to_2024-01-15
-└── income/
-    └── ...
 ```
 
 ---
@@ -283,7 +218,7 @@ ENV_MODE=prod
 
 ## 🔍 调试技巧
 
-### 1. 检查配置加载
+### 检查配置加载
 
 ```python
 # 在 Notebook 中运行
@@ -293,31 +228,15 @@ print(f"Environment Mode: {get_env_mode()}")
 print(f"S3 Config: {get_s3_config()}")
 ```
 
-### 2. 运行配置管理器测试
-
-```bash
-cd mkt-dcs-staging
-python -m utils.config_manager
-```
-
-### 3. 查看本地输出
-
-```bash
-# 查看生成的数据文件
-ls -la data_output/spend/
-
-# 预览 JSONL 数据
-head -5 data_output/spend/appsflyer_spend/2024-01-15/appsflyer_spend_*.preview
-```
-
 ---
 
 ## ⚠️ 注意事项
 
-1. **敏感信息**：`config/variables.json` 包含敏感信息，确保已添加到 `.gitignore`
-2. **环境切换**：切换环境前确认 S3 bucket 配置正确，避免数据写入错误位置
-3. **大文件处理**：对于大文件，使用流式处理避免内存溢出
-4. **失败通知**：生产环境确保飞书 Bot 配置正确，以便及时收到失败通知
+1. **运行环境**：所有 Notebook 必须在 Databricks 集群上运行，SQL 查询使用 `spark.sql()` 执行
+2. **敏感信息**：`config/variables.json` 包含敏感信息，确保已添加到 `.gitignore`
+3. **环境切换**：切换环境前确认 S3 bucket 配置正确，避免数据写入错误位置
+4. **大文件处理**：对于大文件，使用流式处理避免内存溢出
+5. **失败通知**：生产环境确保飞书 Bot 配置正确，以便及时收到失败通知
 
 ---
 

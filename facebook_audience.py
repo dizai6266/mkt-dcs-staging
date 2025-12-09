@@ -35,7 +35,6 @@ importlib.reload(helper)
 # 设置 feishu-notify（路径已在 config_manager 中配置）
 Notifier = setup_feishu_notify()
 
-import sqlalchemy as sa
 from facebook_business.adobjects.customaudience import CustomAudience
 from facebook_business.api import FacebookAdsApi
 
@@ -80,23 +79,17 @@ def do_facebook_audience_process(**context):
     """
     secret_conf = helper.get_cfg('facebook_audience')
     access_token, audience_info = secret_conf.get('access_token'), secret_conf.get('audience_info', [])
-    db_conn_conf = secret_conf['db_conn_conf']
  
     FacebookAdsApi.init(access_token=access_token)
 
-    engine = sa.create_engine(db_conn_conf, echo=False)
-
     for item in audience_info:
-        sql, audience_ids = item.get('sql'), item.get('audience_ids').split(',')
+        sql_text, audience_ids = item.get('sql'), item.get('audience_ids').split(',')
 
-        with engine.connect() as conn:
-            sql_text = sql
-            res = conn.execute(sa.text(sql_text))
-            sql_result = res.fetchall()
+        sql_result = spark.sql(sql_text).collect()
 
         audience_data = list()
-        for item in sql_result:
-            audience_data.append([item[0].strip() if item[0] else '', item[1].strip() if item[1] else ''])
+        for row in sql_result:
+            audience_data.append([row[0].strip() if row[0] else '', row[1].strip() if row[1] else ''])
         print('本次待上传 audience 数量：', len(audience_data))
 
         # 上传受众成员

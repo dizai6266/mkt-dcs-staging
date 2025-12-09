@@ -35,7 +35,6 @@ importlib.reload(helper)
 # 设置 feishu-notify（路径已在 config_manager 中配置）
 Notifier = setup_feishu_notify()
 
-from databricks.sql import connect as databricks_connect
 from facebook_business.adobjects.customaudience import CustomAudience
 from facebook_business.api import FacebookAdsApi
 
@@ -80,15 +79,8 @@ def do_facebook_audience_weekly_process(**context):
     """
     secret_conf = helper.get_cfg('facebook_audience_weekly')
     access_token, audience_info = secret_conf.get('access_token'), secret_conf.get('audience_info', [])
-    db_conn_conf = secret_conf['db_conn_conf']
  
     FacebookAdsApi.init(access_token=access_token)
-
-    conn = databricks_connect(
-        server_hostname=db_conn_conf.get('server_hostname'),
-        http_path=db_conn_conf.get('http_path'),
-        access_token=db_conn_conf.get('access_token')
-    )
 
     for item in audience_info:
         sql_text, audience_ids = item.get('sql_text'), item.get('audience_ids').split(',')
@@ -124,13 +116,11 @@ def do_facebook_audience_weekly_process(**context):
                 )
                 time.sleep(60.)
 
-            with conn.cursor() as cursor:
-                cursor.execute(sql_text)
-                sql_result = cursor.fetchall()
+            sql_result = spark.sql(sql_text).collect()
 
             audience_data = list()
-            for item in sql_result:
-                audience_data.append([item[0].strip() if item[0] else ''])
+            for row in sql_result:
+                audience_data.append([row[0].strip() if row[0] else ''])
             print('本次待上传 audience 数量：', len(audience_data))
 
             # 追加用户 users
@@ -162,8 +152,6 @@ def do_facebook_audience_weekly_process(**context):
                 )
                 print(res.json())
                 time.sleep(1.)
-    
-    conn.close()
 
 
 def upload_facebook_audience_weekly_task(ds: str):

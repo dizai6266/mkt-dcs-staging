@@ -37,8 +37,6 @@ importlib.reload(helper)
 # 设置 feishu-notify（路径已在 config_manager 中配置）
 Notifier = setup_feishu_notify()
 
-from databricks.sql import connect as databricks_connect
-
 print(f"🔧 Environment Mode: {get_env_mode()}")
 print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 
@@ -88,13 +86,6 @@ def do_aarki_audience_process(**context):
     """
     secret_conf = helper.get_cfg('aarki_audience')
     items = secret_conf.get('items')
-    db_conn_conf = secret_conf['db_conn_conf']
- 
-    conn = databricks_connect(
-        server_hostname=db_conn_conf.get('server_hostname'),
-        http_path=db_conn_conf.get('http_path'),
-        access_token=db_conn_conf.get('access_token')
-    )
 
     # 上传受众成员
     for _item in items:
@@ -107,14 +98,11 @@ def do_aarki_audience_process(**context):
 
             logging.info(f'**********> start to fecth audience: {audience_id} {audience_name}')
 
-            cursor = conn.cursor()
-            cursor.execute(sql_text)
-            sql_result = cursor.fetchall()
-            cursor.close()
+            sql_result = spark.sql(sql_text).collect()
 
             identities = list()
-            for item in sql_result:
-                identities.append(item[0].strip() if item[0] else '')
+            for row in sql_result:
+                identities.append(row[0].strip() if row[0] else '')
 
             data = {
                 "id": '',
@@ -149,8 +137,6 @@ def do_aarki_audience_process(**context):
                 logging.info(response.json())
 
                 time.sleep(1.)
-
-    conn.close()
 
 
 def upload_aarki_audience_task(ds: str):
