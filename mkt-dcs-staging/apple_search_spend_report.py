@@ -29,6 +29,10 @@ from utils.config_manager import get_env_mode
 import importlib
 importlib.reload(helper)
 
+# 添加 feishu-notify 路径（开发阶段使用个人目录，正式环境改为 /Workspace/Repos/Shared/feishu-notify）
+sys.path.append('/Workspace/Users/dizai@joycastle.mobi/feishu-notify')
+from notifier import Notifier
+
 print(f"🔧 Environment Mode: {get_env_mode()}")
 print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 
