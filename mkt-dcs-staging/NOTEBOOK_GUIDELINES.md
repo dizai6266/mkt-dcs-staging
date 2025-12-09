@@ -85,8 +85,9 @@ from utils.config_manager import get_env_mode
 import importlib
 importlib.reload(helper)
 
-# 添加 feishu-notify 路径（开发阶段使用个人目录，正式环境改为 /Workspace/Repos/Shared/feishu-notify）
-sys.path.append('/Workspace/Users/dizai@joycastle.mobi/feishu-notify')
+# 添加 feishu-notify 路径（根据环境自动切换）
+_feishu_notify_path = '/Workspace/Repos/Shared/feishu-notify' if get_env_mode() == 'prod' else '/Workspace/Users/dizai@joycastle.mobi/feishu-notify'
+sys.path.append(_feishu_notify_path)
 from notifier import Notifier
 
 print(f"🔧 Environment Mode: {get_env_mode()}")
@@ -469,8 +470,9 @@ from utils.config_manager import get_env_mode
 import importlib
 importlib.reload(helper)
 
-# 添加 feishu-notify 路径（开发阶段使用个人目录，正式环境改为 /Workspace/Repos/Shared/feishu-notify）
-sys.path.append('/Workspace/Users/dizai@joycastle.mobi/feishu-notify')
+# 添加 feishu-notify 路径（根据环境自动切换）
+_feishu_notify_path = '/Workspace/Repos/Shared/feishu-notify' if get_env_mode() == 'prod' else '/Workspace/Users/dizai@joycastle.mobi/feishu-notify'
+sys.path.append(_feishu_notify_path)
 from notifier import Notifier
 
 print(f"🔧 Environment Mode: {get_env_mode()}")
