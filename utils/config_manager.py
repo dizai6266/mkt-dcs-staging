@@ -1,8 +1,6 @@
 import os
 import logging
 import json
-import base64
-import os
 os.environ['ENV_MODE'] = 'staging'
 
 # 配置日志
@@ -131,16 +129,7 @@ def get_secret_config(config_name):
             secret_val = dbutils.secrets.get(scope="airflow_secrets", key=full_key)
             if secret_val:
                 logger.info(f"✅ Loading config {config_name} from Databricks Secrets: {full_key}")
-                try:
-                    # 尝试直接解析 JSON
-                    return json.loads(secret_val)
-                except json.JSONDecodeError:
-                    # 兼容旧的 Base64 编码格式
-                    try:
-                        return json.loads(base64.b64decode(secret_val.encode('utf-8')).decode('utf-8'))
-                    except Exception as e:
-                        logger.warning(f"Failed to decode Databricks secret {full_key}: {e}")
-                        errors.append(f"Databricks secret decode error: {e}")
+                return json.loads(secret_val)
         except Exception as e:
             # Databricks secrets.get 如果 key 不存在会抛错，这是正常的
             logger.debug(f"Databricks secret {full_key} not found: {e}")
@@ -152,16 +141,7 @@ def get_secret_config(config_name):
     
     if env_val:
         logger.info(f"✅ Loading config {config_name} from Environment Variable: {env_key}")
-        try:
-            # 尝试解析 JSON
-            return json.loads(env_val)
-        except json.JSONDecodeError:
-            # 尝试 Base64 解码 (兼容旧的 Base64 编码字符串)
-            try:
-                return json.loads(base64.b64decode(env_val.encode('utf-8')).decode('utf-8'))
-            except Exception as e:
-                logger.warning(f"Failed to decode env var {env_key}: {e}")
-                errors.append(f"Env var decode error: {e}")
+        return json.loads(env_val)
     else:
         errors.append(f"Env var {env_key} not set")
 
@@ -180,17 +160,7 @@ def get_secret_config(config_name):
                 
                 if full_key in all_vars:
                     logger.info(f"✅ Loading config {config_name} from local file: {json_path}")
-                    val = all_vars[full_key]
-                    
-                    if isinstance(val, str):
-                        try:
-                            return json.loads(val)
-                        except json.JSONDecodeError:
-                            try:
-                                return json.loads(base64.b64decode(val.encode('utf-8')).decode('utf-8'))
-                            except:
-                                return val
-                    return val
+                    return all_vars[full_key]
             except Exception as e:
                 logger.debug(f"Error reading {json_path}: {e}")
                 errors.append(f"Local file read error: {e}")
