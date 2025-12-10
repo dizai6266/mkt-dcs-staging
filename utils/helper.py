@@ -1,4 +1,3 @@
-import base64
 import gzip
 import io
 import json
@@ -8,6 +7,13 @@ import requests
 import pandas
 import boto3
 from .config_manager import get_s3_config, get_secret_config, get_env_mode, build_s3_path
+from .data_parser import (
+    DataFormat,
+    detect_format,
+    convert_to_jsonl,
+    StreamingParser,
+    records_to_jsonl,
+)
 
 _AD_TYPE_INCOME = "income"
 _AD_TYPE_SPEND = "spend"
@@ -29,149 +35,6 @@ def get_cfg(cfg_name: str):
     if cfg_name == 'env':
         return get_secret_config('env')
     return get_secret_config(cfg_name)
-
-
-# ============================================================================
-# 数据格式转换相关函数（内部使用）
-# ============================================================================
-
-def _get_read_csv_error_handling_kwargs():
-    """根据 Pandas 版本返回正确的错误处理参数"""
-    try:
-        pandas_version = tuple(map(int, pandas.__version__.split('.')[:2]))
-        if pandas_version >= (1, 3):
-            return {'on_bad_lines': 'skip'}
-        else:
-            return {'error_bad_lines': False}
-    except:
-        return {'on_bad_lines': 'skip'}
-
-
-def _detect_data_format(text_data: str) -> str:
-    """
-    智能检测数据格式
-    """
-    text_stripped = text_data.strip()
-    
-    if not text_stripped:
-        return 'unknown'
-    
-    # 检查是否为 JSON Lines（每行一个 JSON 对象）
-    first_line = text_stripped.split('\n')[0].strip()
-    if first_line.startswith('{') and first_line.endswith('}'):
-        try:
-            json.loads(first_line)
-            # 验证是否每行都是有效 JSON
-            lines = text_stripped.split('\n')[:5]  # 只检查前 5 行
-            valid_jsonl = True
-            for line in lines:
-                line = line.strip()
-                if line:
-                    try:
-                        obj = json.loads(line)
-                        if not isinstance(obj, dict):
-                            valid_jsonl = False
-                            break
-                    except json.JSONDecodeError:
-                        valid_jsonl = False
-                        break
-            if valid_jsonl:
-                return 'jsonl'
-        except json.JSONDecodeError:
-            pass
-    
-    # 检查是否为 JSON 数组
-    if text_stripped.startswith('['):
-        try:
-            data = json.loads(text_stripped)
-            if isinstance(data, list):
-                return 'json_array'
-        except json.JSONDecodeError:
-            pass
-    
-    # 检查是否为单个 JSON 对象
-    if text_stripped.startswith('{'):
-        try:
-            data = json.loads(text_stripped)
-            if isinstance(data, dict):
-                return 'json_object'
-        except json.JSONDecodeError:
-            pass
-    
-    # 默认尝试作为 CSV
-    return 'csv'
-
-
-def _convert_to_jsonl(text_data: str, data_format: str = None) -> tuple:
-    """
-    将各种格式的数据转换为 JSON Lines
-    """
-    if not text_data or not text_data.strip():
-        return '', 0, 'empty'
-    
-    # 自动检测格式
-    if data_format is None:
-        data_format = _detect_data_format(text_data)
-    
-    print(f"   📋 Detected format: {data_format}")
-    
-    if data_format == 'jsonl':
-        # 已经是 JSON Lines，直接验证并返回
-        lines = []
-        row_count = 0
-        for line in text_data.strip().split('\n'):
-            line = line.strip()
-            if line:
-                try:
-                    # 验证是有效 JSON
-                    json.loads(line)
-                    lines.append(line)
-                    row_count += 1
-                except json.JSONDecodeError as e:
-                    logging.warning(f"   ⚠️ Skipping invalid JSON line: {str(e)[:50]}")
-        return '\n'.join(lines), row_count, 'jsonl'
-    
-    elif data_format == 'json_array':
-        # JSON 数组转 JSONL
-        data = json.loads(text_data)
-        lines = []
-        for item in data:
-            lines.append(json.dumps(item, ensure_ascii=False))
-        return '\n'.join(lines), len(lines), 'json_array'
-    
-    elif data_format == 'json_object':
-        # 单个 JSON 对象
-        data = json.loads(text_data)
-        return json.dumps(data, ensure_ascii=False), 1, 'json_object'
-    
-    elif data_format == 'csv':
-        # CSV 转 JSONL
-        csv_kwargs = _get_read_csv_error_handling_kwargs()
-        df = pandas.read_csv(io.StringIO(text_data), **csv_kwargs)
-        
-        # 处理日期列
-        date_columns = ['date', 'report_date', 'start_ds', 'end_ds', 'exc_ds']
-        for col in date_columns:
-            if col in df.columns:
-                df[col] = df[col].astype(str)
-        
-        # 转换为 JSONL
-        lines = []
-        for _, row in df.iterrows():
-            record = {}
-            for col, val in row.items():
-                if pandas.isna(val):
-                    record[col] = None
-                else:
-                    record[col] = val
-            lines.append(json.dumps(record, ensure_ascii=False))
-        
-        return '\n'.join(lines), len(lines), 'csv'
-    
-    else:
-        # 未知格式，原样返回
-        logging.warning(f"   ⚠️ Unknown format, returning as-is")
-        return text_data, 0, 'unknown'
 
 
 # ============================================================================
@@ -301,11 +164,13 @@ def save_report(
     """
     保存报告数据并根据环境模式自动处理上传
     
+    自动识别数据格式：CSV, JSON, JSONL, API 响应（如 {"code":200,"results":[...]}）
+    
     文件名生成规则: {ad_network}_{date_range}[_{custom}]
     """
     env_mode = get_env_mode()
     
-    # --- [Filename Generation Logic Updated] ---
+    # --- [Filename Generation Logic] ---
     # 1. 确定日期部分
     if start_ds and end_ds:
         date_part = f"{start_ds}_to_{end_ds}"
@@ -350,16 +215,25 @@ def save_report(
         logging.warning("⚠️ No data to save")
         return None
     
-    # 转换为 JSONL
+    # 使用 data_parser 模块转换为 JSONL
     try:
         text_data = raw_data.decode('utf-8')
-        jsonl_content, row_count, detected_format = _convert_to_jsonl(text_data, data_format)
         
-        if detected_format == 'unknown':
+        # 转换 data_format 参数（如果有）
+        fmt = None
+        if data_format:
+            try:
+                fmt = DataFormat(data_format)
+            except ValueError:
+                fmt = None
+        
+        jsonl_content, row_count, detected_format = convert_to_jsonl(text_data, fmt)
+        
+        if detected_format == DataFormat.UNKNOWN:
             logging.warning("⚠️ Could not convert to JSONL, saving as original")
             jsonl_content = text_data
         else:
-            print(f"✅ Converted {detected_format} to JSONL format ({row_count} rows)")
+            print(f"✅ Converted {detected_format.value} to JSONL format ({row_count} rows)")
         
     except Exception as e:
         logging.error(f"❌ Error converting data: {e}")
@@ -423,7 +297,7 @@ def save_report(
 
 def _save_report_streaming(ad_network: str, ad_type: str, response, filename: str, exc_ds: str, env_mode: str):
     """
-    流式处理大文件
+    流式处理大文件，自动识别数据格式（CSV/JSON/JSONL/API响应）
     """
     import tempfile
     import shutil
@@ -476,11 +350,17 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
     max_preview_size = 5 * 1024 * 1024
     
     try:
+        # 1. 下载响应内容到临时文件
         print("⬇️  Downloading stream to temporary file...")
         response.raw.decode_content = True
         shutil.copyfileobj(response.raw, raw_temp_file)
         raw_temp_file.seek(0)
         print("✅ Download complete.")
+        
+        # 2. 使用 StreamingParser 自动检测格式并解析
+        parser = StreamingParser(chunk_size=10000)
+        data_format = parser.detect_format_from_file(raw_temp_file)
+        raw_temp_file.seek(0)
         
         if local_file:
             local_f = open(local_file, 'w', encoding='utf-8')
@@ -489,34 +369,19 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
             s3_temp_file = tempfile.TemporaryFile(mode='w+b')
             s3_gzip_file = gzip.GzipFile(fileobj=s3_temp_file, mode='wb')
         
-        print("⏳ Starting CSV parsing and processing...")
-        chunk_size = 10000
+        print(f"⏳ Starting data parsing and processing...")
         total_rows = 0
         chunk_count = 0
         
-        csv_kwargs = _get_read_csv_error_handling_kwargs()
-        csv_kwargs['chunksize'] = chunk_size
-        
-        for chunk_df in pandas.read_csv(raw_temp_file, **csv_kwargs):
+        # 3. 使用 StreamingParser 流式解析
+        for records, batch_size in parser.parse_file(raw_temp_file, data_format):
             chunk_count += 1
             if chunk_count % 10 == 1:
                 print(f"   Processing chunk {chunk_count} (rows so far: {total_rows})...")
             
-            # 处理日期列
-            date_columns = ['date', 'report_date', 'start_ds', 'end_ds', 'exc_ds']
-            for col in date_columns:
-                if col in chunk_df.columns:
-                    chunk_df[col] = chunk_df[col].astype(str)
-            
-            # 转换为 JSONL（逐行处理）
+            # 转换记录为 JSONL 行
             chunk_lines = []
-            for _, row in chunk_df.iterrows():
-                record = {}
-                for col, val in row.items():
-                    if pandas.isna(val):
-                        record[col] = None
-                    else:
-                        record[col] = val
+            for record in records:
                 line = json.dumps(record, ensure_ascii=False)
                 chunk_lines.append(line)
                 
@@ -528,7 +393,7 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
                         preview_size += line_size
             
             chunk_jsonl = '\n'.join(chunk_lines) + '\n'
-            total_rows += len(chunk_df)
+            total_rows += batch_size
             
             # 写入本地完整文件
             if local_f:
@@ -538,7 +403,7 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
             if s3_gzip_file:
                 s3_gzip_file.write(chunk_jsonl.encode('utf-8'))
         
-        print(f"✅ CSV parsing complete. Total rows: {total_rows}")
+        print(f"✅ Data parsing complete. Total rows: {total_rows}")
         
         # 保存 preview 文件
         if preview_file:
