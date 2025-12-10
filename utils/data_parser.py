@@ -552,17 +552,38 @@ def expand_applovin_max_ad_unit(ad_unit_data: dict) -> List[dict]:
             expanded_records.append(record)
     
     elif isinstance(ad_network_settings, list):
-        # 如果是列表格式
-        for network_config in ad_network_settings:
-            if isinstance(network_config, dict):
-                record = base_record.copy()
-                # 尝试获取 network 名称
-                network_name = network_config.get('network') or network_config.get('name') or 'unknown'
-                record['network'] = network_name
-                record['network_disabled'] = network_config.get('disabled', False)
-                record['ad_network_ad_unit_id'] = network_config.get('ad_network_ad_unit_id', '')
-                
-                expanded_records.append(record)
+        # 列表格式: [{"ADMOB_NETWORK": {...}}, {"APPLOVIN_NETWORK": {...}}, ...]
+        for network_item in ad_network_settings:
+            if isinstance(network_item, dict):
+                # 每个 network_item 是 {network_name: config} 格式
+                for network_name, network_config in network_item.items():
+                    if not isinstance(network_config, dict):
+                        continue
+                    
+                    # 获取 ad_network_ad_units 列表
+                    ad_units = network_config.get('ad_network_ad_units', [])
+                    network_disabled = network_config.get('disabled', False)
+                    
+                    if ad_units:
+                        # 展开每个 ad_network_ad_unit
+                        for ad_unit in ad_units:
+                            if isinstance(ad_unit, dict):
+                                record = base_record.copy()
+                                record['network'] = network_name
+                                record['network_disabled'] = network_disabled
+                                record['ad_network_ad_unit_id'] = ad_unit.get('ad_network_ad_unit_id')
+                                record['cpm'] = ad_unit.get('cpm')
+                                
+                                expanded_records.append(record)
+                    else:
+                        # 没有 ad_network_ad_units，创建一条空记录
+                        record = base_record.copy()
+                        record['network'] = network_name
+                        record['network_disabled'] = network_disabled
+                        record['ad_network_ad_unit_id'] = None
+                        record['cpm'] = None
+                        
+                        expanded_records.append(record)
     
     return expanded_records if expanded_records else [base_record]
 
