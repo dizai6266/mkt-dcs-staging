@@ -114,8 +114,17 @@ def _download_report(url: str, ds: str, client_id: str):
     return full_path
 
 
-def _process_and_upload(file_path, year, month, ds):
-    sio = io.StringIO()
+def _get_month_last_day(year: int, month: int) -> int:
+    """获取指定月份的最后一天"""
+    if month == 12:
+        next_month_first = datetime(year + 1, 1, 1)
+    else:
+        next_month_first = datetime(year, month + 1, 1)
+    return (next_month_first - timedelta(days=1)).day
+
+
+def _process_and_upload(file_path, year, month, ds, account_id):
+    """处理并上传报告"""
     
     with zipfile.ZipFile(file_path, 'r') as zf:
         filename = zf.namelist()[0]
@@ -123,17 +132,27 @@ def _process_and_upload(file_path, year, month, ds):
         df = pd.read_csv(io.StringIO(report))
         
         # 删除不在请求月份内的数据
-        fix_month = f'{month}' if month >= 10 else f'0{month}'
+        fix_month = f'{month:02d}'
         df = df.drop(df[df['Transaction Time'] < f'{year}-{fix_month}-01'].index)
-        df.to_json(sio, orient='records', lines=True)
+        
+        # 获取该月最后一天
+        last_day = _get_month_last_day(year, month)
+        
+        # 转换为 JSON Lines
+        sio = io.StringIO()
+        df.to_json(sio, orient='records', lines=True, force_ascii=False)
+        
+        print(f"   📊 Processed {len(df)} rows for {year}-{fix_month}")
     
+    # 使用 custom 参数区分不同 client (account_id)
     helper.save_report(
         ad_network=_AD_NETWORK,
         ad_type=_AD_TYPE,
         report=sio.getvalue(),
         exc_ds=ds,
         start_ds=f'{year}-{fix_month}-01',
-        end_ds=f'{year}-{fix_month}-28'
+        end_ds=f'{year}-{fix_month}-{last_day:02d}',
+        custom=account_id  # <--- CHANGE: 使用真实的 client_id
     )
 
 
@@ -143,15 +162,19 @@ def fetch_iap_report_task(ds: str):
     cfg = helper.get_cfg('amazon')
     iap_clients = cfg.get('iap')
     
-    for client in iap_clients:
+    if not iap_clients:
+        print("⚠️ No IAP clients configured")
+        return
+    
+    for client_index, client in enumerate(iap_clients, start=1):
         client_id = client.get('client_id')
         client_secret = client.get('client_secret')
-        print(f"\n   📱 Processing client: {client_id[:8]}...")
+        print(f"\n   📱 Processing client {client_index}: {client_id[:20]}...")
         
         amz_token = _get_access_token(client_id, client_secret)
         
         curr_dt = datetime.strptime(ds, '%Y-%m-%d')
-        last_month_dt = curr_dt.replace(day=1) + timedelta(days=-1)
+        last_month_dt = curr_dt.replace(day=1) - timedelta(days=1)
         
         for t in [curr_dt, last_month_dt]:
             year, month = t.year, t.month
@@ -160,10 +183,11 @@ def fetch_iap_report_task(ds: str):
             sale_url = _get_sale_report_url(amz_token, int(year), int(month))
             
             if not (sale_url.startswith("https://") or sale_url.startswith("http://")):
-                raise Exception(f'no valid sale_url found: {sale_url}, {year}/{month}')
+                raise Exception(f'No valid sale_url found: {sale_url}, {year}/{month}')
             
             sale_path = _download_report(sale_url, ds, client_id)
-            _process_and_upload(sale_path, year, month, ds)
+            # Pass client_id instead of index
+            _process_and_upload(sale_path, year, month, ds, client_id)
             print(f"   ✅ Processed {year}-{month:02d}")
     
     print(f"\n✅ Saved {_AD_NETWORK} report for {ds}")
@@ -198,19 +222,22 @@ env_mode = get_env_mode()
 print(f"\n🔍 Data Validation (ENV_MODE={env_mode})")
 
 if env_mode != 'staging':
-    print("⚠️ 非 staging 模式,跳过本地 preview。")
+    print("⚠️ 非 staging 模式，跳过本地 preview。")
 else:
     try:
         base_root = getattr(helper, "_DATA_BASE_PATH", None) or os.path.join(os.getcwd(), "data_output")
         preview_root = os.path.join(base_root, _AD_TYPE, _AD_NETWORK)
         print(f"🔎 Scanning preview files under: {preview_root}")
 
-        if os.path.exists(preview_root):
-            preview_files = [
-                os.path.join(preview_root, f)
-                for f in os.listdir(preview_root)
-                if f.endswith('.json')
-            ][:3]
+        if not os.path.exists(preview_root):
+            print(f"⚠️ Preview directory does not exist: {preview_root}")
+        else:
+            preview_files = []
+            for root, dirs, files in os.walk(preview_root):
+                for name in files:
+                    if name.endswith('.preview'):
+                        preview_files.append(os.path.join(root, name))
+
             print(f"✅ Found {len(preview_files)} preview file(s)")
 
             for sample_file in preview_files:

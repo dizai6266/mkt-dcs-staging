@@ -1,81 +1,75 @@
-# Databricks Notebook 开发规范
+# Databricks Notebook 开发规范 (NOTEBOOK_GUIDELINES.md)
 
-本文档定义了 MKT DCS 项目中 Databricks Notebook 的开发规范，确保代码一致性、可维护性和可靠性。
-
----
-
-## 目录
-
-1. [整体结构](#整体结构)
-2. [各部分详解](#各部分详解)
-3. [失败回调机制](#失败回调机制)
-4. [命名规范](#命名规范)
-5. [代码风格](#代码风格)
-6. [日志输出规范](#日志输出规范)
-7. [模板示例](#模板示例)
+> 本规范适用于从 Airflow DAG 迁移到 Databricks Notebook 的数据报告任务。遵循本规范可确保代码一致性，便于维护和 AI 辅助开发。
 
 ---
 
-## 整体结构
-
-每个 Notebook 必须严格遵循以下 **5 个部分** 的结构：
+## 目录结构
 
 ```
-┌────────────────────────────────────────────┐
-│  # Title & Description                      │
-├────────────────────────────────────────────┤
-│  ## 1. Setup & Imports                      │
-├────────────────────────────────────────────┤
-│  ## 2. Configuration                        │
-├────────────────────────────────────────────┤
-│  ## 3. Task Logic                           │
-├────────────────────────────────────────────┤
-│  ## 4. Execution                            │
-├────────────────────────────────────────────┤
-│  ## 5. Data Validation                      │
-└────────────────────────────────────────────┘
+mkt-dcs-staging/
+├── utils/
+│   ├── helper.py           # 核心工具函数（上传、保存、通知等）
+│   └── config_manager.py   # 配置管理（环境、密钥、S3路径）
+├── notebooks/
+│   ├── iap/
+│   │   └── amazon_iap_report.py
+│   ├── spend/
+│   │   ├── applovin_asset_spend_report.py
+│   │   └── apple_search_spend_report.py
+│   └── income/
+│       └── ...
+└── data_output/            # 本地输出目录（staging/dev 模式）
 ```
 
 ---
 
-## 各部分详解
+## Notebook 标准结构（6 个部分）
 
-### Part 1: Title & Description
+每个 Notebook 必须包含以下 6 个部分，按顺序排列：
 
-**必须包含**：
-- Notebook 标题（使用 H1）
-- 简短的功能描述
+### Part 1: 标题与说明
 
 ```python
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # {AdNetwork} Spend Report
+# MAGIC # {广告网络} {报告类型} Report
 # MAGIC
-# MAGIC 该 Notebook 从 {AdNetwork} API 获取广告消耗数据。
+# MAGIC 简要说明该 Notebook 的功能。
 ```
+
+**示例** [1]：
+```python
+# MAGIC # Amazon IAP Report
+# MAGIC
+# MAGIC 该 Notebook 从 Amazon API 获取 IAP 销售报告数据。
+```
+
+---
 
 ### Part 2: Setup & Imports
 
-**必须包含**：
-1. 标准库导入
-2. 第三方库导入
-3. 项目内部模块导入
-4. 环境初始化确认
-
 ```python
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 1. Setup & Imports
 
 # COMMAND ----------
 
-import requests
+import gzip
+import io
 import json
+import os
+import shutil
+import zipfile
 from datetime import datetime, timedelta
 import sys
-import os
-import pandas as pd
 
-# 动态添加当前目录到 sys.path 以加载 utils
+import pandas as pd
+import requests
+
+# 动态添加当前目录到 sys.path
 current_dir = os.getcwd()
 if current_dir not in sys.path:
     sys.path.append(current_dir)
@@ -85,453 +79,150 @@ from utils.config_manager import get_env_mode, setup_feishu_notify
 import importlib
 importlib.reload(helper)
 
-# 设置 feishu-notify（路径已在 config_manager 中配置）
+# 设置飞书通知
 Notifier = setup_feishu_notify()
 
 print(f"🔧 Environment Mode: {get_env_mode()}")
 print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 ```
+
+---
 
 ### Part 3: Configuration
 
-**必须包含**：
-1. `_AD_NETWORK` 常量定义
-2. `_DATE_RANGE` 常量（如适用）
-3. Widget 参数获取（使用 try-except 兼容本地运行）
-4. 参数验证和默认值
-
 ```python
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 2. Configuration
 
 # COMMAND ----------
 
 # --- [配置参数] ---
-_AD_NETWORK = 'ad_network_name'
-_DATE_RANGE = 7  # 日期范围（天）
+_AD_NETWORK = '{广告网络名}'    # 例如: 'amazon', 'applovin', 'apple_search'
+_AD_TYPE = '{报告类型}'          # 可选值: 'iap', 'spend', 'income', 'attribution'
 
-# 获取 Widget 参数
+# --- [日期参数] ---
 try:
-    dbutils.widgets.text("ds", "", "Execution Date (YYYY-MM-DD)")
+    dbutils.widgets.text("ds", "", "Date (YYYY-MM-DD)")
     ds_param = dbutils.widgets.get("ds")
 except:
     ds_param = ""
 
 if not ds_param:
-    ds_param = (datetime.utcnow() - timedelta(days=1)).strftime('%Y-%m-%d')
+    ds_param = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
 
 print(f"📅 Execution Date: {ds_param}")
 ```
 
-### Part 4: Task Logic
+**配置参数说明**：
 
-**必须包含**：
-1. 主任务函数 `fetch_spend_report_task(ds: str)`
-2. 辅助函数（如需要）
-3. 完整的 docstring
+| 变量 | 说明 | 示例值 |
+|------|------|--------|
+| `_AD_NETWORK` | 广告网络标识（小写） | `'amazon'`, `'applovin'`, `'apple_search'` |
+| `_AD_TYPE` | 报告类型 | `'iap'`, `'spend'`, `'income'`, `'attribution'` |
+| `ds_param` | 执行日期 | `'2025-12-09'` |
+
+---
+
+### Part 4: Core Functions
 
 ```python
+# COMMAND ----------
+
 # MAGIC %md
-# MAGIC ## 3. Task Logic
+# MAGIC ## 3. Core Functions
 
 # COMMAND ----------
 
-def fetch_spend_report_task(ds: str):
+# 在此定义所有业务逻辑函数
+```
+
+#### 4.1 核心函数命名规范
+
+| 函数类型 | 命名格式 | 示例 |
+|----------|----------|------|
+| 主任务函数 | `fetch_{type}_report_task(ds)` | `fetch_iap_report_task(ds)` |
+| 数据处理函数 | `_process_and_upload(...)` | `_process_and_upload(file_path, year, month, ds, client_index)` |
+| API 调用函数 | `_get_{resource}(...)` | `_get_access_token(...)`, `_get_sale_report_url(...)` |
+| 辅助函数 | `_helper_name(...)` | `_get_month_last_day(year, month)` |
+
+#### 4.2 主任务函数模板
+
+```python
+def fetch_{type}_report_task(ds: str):
     """
-    获取 {AdNetwork} 消耗报告
+    获取 {AD_NETWORK} {TYPE} 报告
     
     Args:
         ds: 执行日期 (YYYY-MM-DD)
     """
-    # 1. 计算日期范围
-    end_dt = datetime.strptime(ds, '%Y-%m-%d')
-    end_ds = ds
-    start_dt = end_dt + timedelta(days=-(_DATE_RANGE))
-    start_ds = start_dt.strftime('%Y-%m-%d')
+    print(f"📊 Fetching {_AD_NETWORK} report for {ds}")
     
-    print(f"📆 Date Range: {start_ds} to {end_ds}")
+    # 1. 获取配置
+    cfg = helper.get_cfg('{config_name}')
     
-    # 2. 获取配置
-    cfg = helper.get_cfg(_AD_NETWORK)
+    # 2. 遍历账号/客户端
+    for index, item in enumerate(cfg.get('{key}'), start=1):
+        print(f"\n   📱 Processing item {index}...")
+        
+        # 3. 获取数据
+        # ...
+        
+        # 4. 处理并保存
+        helper.save_report(
+            ad_network=_AD_NETWORK,
+            ad_type=_AD_TYPE,
+            report=report_data,      # 支持 CSV/JSON/JSONL 格式，自动转换
+            exc_ds=ds,
+            start_ds=start_date,
+            end_ds=end_date,
+            custom=index             # 可选：用于区分多账号
+        )
+        
+        print(f"   ✅ Processed item {index}")
     
-    # 3. 调用 API
-    # ... API 调用逻辑 ...
-    
-    # 4. 保存报告
-    helper.save_report(
-        ad_network=_AD_NETWORK, 
-        ad_type=helper._AD_TYPE_SPEND, 
-        report=report_data, 
-        exc_ds=ds, 
-        start_ds=start_ds, 
-        end_ds=end_ds
-    )
-    print(f"✅ Saved {_AD_NETWORK} report for {start_ds} to {end_ds}")
+    print(f"\n✅ Saved {_AD_NETWORK} report for {ds}")
 ```
 
-### Part 5: Execution
-
-**必须包含**：
-1. Job 启动日志
-2. try-except 包裹的任务执行
-3. **on_failure_callback**: 失败时调用 `helper.failure_callback()`
-4. 重新抛出异常（保持 Databricks Job 失败状态）
+#### 4.3 helper.save_report() 参数说明
 
 ```python
-# MAGIC %md
-# MAGIC ## 4. Execution
-
-# COMMAND ----------
-
-print(f"🚀 Starting Job for {_AD_NETWORK}")
-
-try:
-    fetch_spend_report_task(ds_param)
-    print("\n✅ Job Finished Successfully")
-
-except Exception as e:
-    print(f"\n❌ Job Failed: {e}")
-    # on_failure_callback: 失败时发送飞书通知
-    helper.failure_callback(str(e), f"{_AD_NETWORK}_spend_report")
-    raise e
-```
-
-### Part 6: Data Validation
-
-**必须包含**：
-1. 环境模式检查
-2. staging 模式下的数据预览
-3. 异常处理
-
-```python
-# MAGIC %md
-# MAGIC ## 5. Data Validation
-
-# COMMAND ----------
-
-env_mode = get_env_mode()
-print(f"\n🔍 Data Validation (ENV_MODE={env_mode})")
-
-if env_mode != 'staging':
-    print("⚠️ 非 staging 模式，跳过本地 preview。")
-else:
-    try:
-        base_root = getattr(helper, "_DATA_BASE_PATH", None) or os.path.join(os.getcwd(), "data_output")
-        preview_root = os.path.join(base_root, helper._AD_TYPE_SPEND, _AD_NETWORK)
-        print(f"🔎 Scanning preview files under: {preview_root}")
-
-        if not os.path.exists(preview_root):
-            print(f"⚠️ Preview directory does not exist: {preview_root}")
-        else:
-            preview_files = []
-            for root, dirs, files in os.walk(preview_root):
-                for name in files:
-                    if name.endswith('.preview'):
-                        preview_files.append(os.path.join(root, name))
-
-            print(f"✅ Found {len(preview_files)} preview file(s)")
-
-            for sample_file in preview_files:
-                print(f"\n   Previewing: {sample_file}")
-                try:
-                    df = pd.read_json(sample_file, lines=True)
-                    try:
-                        display(df.head(5))
-                    except NameError:
-                        print(df.head(5).to_string())
-                    print(f"   Total rows: {len(df)}\n")
-                except Exception as e:
-                    print(f"   ❌ Failed to read preview file: {e}")
-    except Exception as e:
-        print(f"❌ Preview scan error: {e}")
-```
-
----
-
-## 失败回调机制
-
-### 基本用法
-
-```python
-try:
-    fetch_spend_report_task(ds_param)
-    print("\n✅ Job Finished Successfully")
-except Exception as e:
-    print(f"\n❌ Job Failed: {e}")
-    # on_failure_callback: 失败时发送飞书通知
-    helper.failure_callback(str(e), f"{_AD_NETWORK}_spend_report")
-    raise e  # 必须重新抛出，保持 Job 失败状态
-```
-
-### 参数说明
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `exception_msg` | `str` | 异常信息文本 |
-| `job_name` | `str` | Job 名称，建议格式: `{ad_network}_spend_report` |
-
-### 通知内容
-
-失败时会发送飞书通知，包含：
-- **JOB**: Job 名称
-- **ERROR**: 错误详情
-
-### 高级用法（使用 feishu-notify）
-
-如需更丰富的通知功能，可使用 `feishu-notify` 模块：
-
-```python
-from feishu_notify import Notifier
-
-notifier = Notifier(webhook="https://...", source="Databricks")
-
-# 发送错误通知
-notifier.error(
-    title=f"任务失败: {_AD_NETWORK}",
-    error_msg=str(e),
-    task_name=f"{_AD_NETWORK}_spend_report",
-    link_url="https://databricks.com/job/xxx"
+helper.save_report(
+    ad_network: str,      # 必填：广告网络名
+    ad_type: str,         # 必填：报告类型
+    report: str,          # 必填：报告数据（支持 CSV/JSON/JSONL，自动检测转换）
+    exc_ds: str,          # 必填：执行日期
+    start_ds: str,        # 可选：数据开始日期
+    end_ds: str,          # 可选：数据结束日期
+    report_ds: str,       # 可选：报告日期（与 start_ds/end_ds 二选一）
+    custom: any,          # 可选：自定义标识（用于文件名区分多账号）
+    data_format: str      # 可选：强制指定格式 ('csv'/'jsonl'/'json_array')
 )
 ```
 
----
+**生成的文件名规则**：
 
-## 命名规范
+| 参数组合 | 文件名格式 | 示例 |
+|----------|------------|------|
+| `custom` + `start_ds` + `end_ds` | `{network}_{custom}_{start}_to_{end}` | `applovin_1_2025-12-02_to_2025-12-08` |
+| `start_ds` + `end_ds` | `{network}_{start}_to_{end}` | `amazon_2025-12-01_to_2025-12-31` |
+| `report_ds` | `{network}_{report_ds}` | `facebook_2025-12-09` |
 
-### 文件命名
+**支持的数据格式**（自动检测）：
 
-| 类型 | 格式 | 示例 |
-|------|------|------|
-| Spend 报告 | `{ad_network}_spend_report.py` | `aarki_spend_report.py` |
-| Asset 报告 | `{ad_network}_asset_spend_report.py` | `applovin_asset_spend_report.py` |
-| 归因报告 | `{ad_network}_attribution_report.py` | `appsflyer_attribution_report.py` |
-
-### 常量命名
-
-| 常量 | 说明 | 示例 |
-|------|------|------|
-| `_AD_NETWORK` | 广告网络标识（小写，下划线分隔） | `'apple_search'` |
-| `_DATE_RANGE` | 日期范围（天数） | `7` |
-| `_AD_TYPE_*` | 报告类型（从 helper 导入） | `helper._AD_TYPE_SPEND` |
-
-### 函数命名
-
-| 函数 | 说明 |
-|------|------|
-| `fetch_spend_report_task(ds)` | 主任务函数 |
-| `get_xxx_token(cfg)` | 获取 Token |
-| `get_xxx_info(...)` | 获取特定信息 |
-| `_parse_xxx_data(...)` | 内部解析函数（下划线前缀） |
+| 格式 | 识别特征 | 处理方式 |
+|------|----------|----------|
+| JSONL | 每行以 `{` 开头 `}` 结尾 | 直接验证，不转换 |
+| JSON Array | 以 `[` 开头 | 转换为 JSONL |
+| JSON Object | 以 `{` 开头（单行） | 转换为单行 JSONL |
+| CSV | 其他情况 | 转换为 JSONL |
 
 ---
 
-## 代码风格
-
-### 通用规范
-
-1. **缩进**: 4 空格
-2. **行宽**: 不超过 120 字符
-3. **空行**: 函数之间 2 空行，逻辑块之间 1 空行
-4. **注释**: 使用中文注释，复杂逻辑必须注释
-
-### 导入顺序
+### Part 5: Execution
 
 ```python
-# 1. 标准库
-import os
-import sys
-import json
-from datetime import datetime, timedelta
-
-# 2. 第三方库
-import requests
-import pandas as pd
-
-# 3. 项目内部模块
-from utils import helper
-from utils.config_manager import get_env_mode
-```
-
-### 字符串格式化
-
-使用 f-string：
-
-```python
-# ✅ 推荐
-print(f"Date: {start_ds} to {end_ds}")
-
-# ❌ 不推荐
-print("Date: {} to {}".format(start_ds, end_ds))
-print("Date: %s to %s" % (start_ds, end_ds))
-```
-
-### 异常处理
-
-```python
-# ✅ 推荐：具体异常 + 上下文信息
-try:
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise RuntimeError(f"API Error: {response.status_code} {response.text[:200]}")
-except Exception as e:
-    print(f"❌ Error: {e}")
-    raise
-
-# ❌ 不推荐：吞掉异常
-try:
-    response = requests.get(url)
-except:
-    pass
-```
-
----
-
-## 日志输出规范
-
-### Emoji 前缀
-
-| Emoji | 含义 | 使用场景 |
-|-------|------|----------|
-| 🔧 | 配置 | 环境配置信息 |
-| ✅ | 成功 | 操作完成 |
-| ❌ | 失败 | 错误发生 |
-| ⚠️ | 警告 | 非致命问题 |
-| 📅 | 日期 | 执行日期 |
-| 📆 | 范围 | 日期范围 |
-| 📡 | 请求 | API 请求 |
-| 📋 | 列表 | 数据统计 |
-| 📊 | 数据 | 数据量统计 |
-| 🔑 | 认证 | Token 获取 |
-| 🔎 | 搜索 | 文件扫描 |
-| 🚀 | 启动 | Job 开始 |
-
-### 日志格式
-
-```python
-# 阶段开始
-print(f"🚀 Starting Job for {_AD_NETWORK}")
-
-# 配置信息
-print(f"📅 Execution Date: {ds_param}")
-print(f"📆 Date Range: {start_ds} to {end_ds}")
-
-# API 调用
-print(f"📡 Fetching report from: {url}")
-
-# 数据统计
-print(f"📊 Total records: {len(records)}")
-
-# 操作完成
-print(f"✅ Saved {_AD_NETWORK} report")
-
-# 错误信息
-print(f"❌ Job Failed: {e}")
-
-# 警告信息
-print(f"⚠️ No data returned")
-```
-
----
-
-## 模板示例
-
-完整的 Notebook 模板：
-
-```python
-# Databricks notebook source
-# MAGIC %md
-# MAGIC # {AdNetwork} Spend Report
-# MAGIC
-# MAGIC 该 Notebook 从 {AdNetwork} API 获取广告消耗数据。
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 1. Setup & Imports
-
-# COMMAND ----------
-
-import requests
-import json
-from datetime import datetime, timedelta
-import sys
-import os
-import pandas as pd
-
-# 动态添加当前目录到 sys.path 以加载 utils
-current_dir = os.getcwd()
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
-
-from utils import helper
-from utils.config_manager import get_env_mode, setup_feishu_notify
-import importlib
-importlib.reload(helper)
-
-# 设置 feishu-notify（路径已在 config_manager 中配置）
-Notifier = setup_feishu_notify()
-
-print(f"🔧 Environment Mode: {get_env_mode()}")
-print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 2. Configuration
-
-# COMMAND ----------
-
-# --- [配置参数] ---
-_AD_NETWORK = 'ad_network_name'
-_DATE_RANGE = 7
-
-# 获取 Widget 参数
-try:
-    dbutils.widgets.text("ds", "", "Execution Date (YYYY-MM-DD)")
-    ds_param = dbutils.widgets.get("ds")
-except:
-    ds_param = ""
-
-if not ds_param:
-    ds_param = (datetime.utcnow() - timedelta(days=1)).strftime('%Y-%m-%d')
-
-print(f"📅 Execution Date: {ds_param}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 3. Task Logic
-
-# COMMAND ----------
-
-def fetch_spend_report_task(ds: str):
-    """
-    获取 {AdNetwork} 消耗报告
-    
-    Args:
-        ds: 执行日期 (YYYY-MM-DD)
-    """
-    end_dt = datetime.strptime(ds, '%Y-%m-%d')
-    end_ds = ds
-    start_dt = end_dt + timedelta(days=-(_DATE_RANGE))
-    start_ds = start_dt.strftime('%Y-%m-%d')
-    
-    print(f"📆 Date Range: {start_ds} to {end_ds}")
-    
-    cfg = helper.get_cfg(_AD_NETWORK)
-    # TODO: 实现 API 调用逻辑
-    
-    # 保存报告
-    helper.save_report(
-        ad_network=_AD_NETWORK, 
-        ad_type=helper._AD_TYPE_SPEND, 
-        report=report_data, 
-        exc_ds=ds, 
-        start_ds=start_ds, 
-        end_ds=end_ds
-    )
-    print(f"✅ Saved {_AD_NETWORK} report for {start_ds} to {end_ds}")
-
 # COMMAND ----------
 
 # MAGIC %md
@@ -542,15 +233,20 @@ def fetch_spend_report_task(ds: str):
 print(f"🚀 Starting Job for {_AD_NETWORK}")
 
 try:
-    fetch_spend_report_task(ds_param)
+    fetch_{type}_report_task(ds_param)
     print("\n✅ Job Finished Successfully")
 
 except Exception as e:
     print(f"\n❌ Job Failed: {e}")
-    # on_failure_callback: 失败时发送飞书通知
-    helper.failure_callback(str(e), f"{_AD_NETWORK}_spend_report")
-    raise e
+    helper.failure_callback(str(e), f"{_AD_NETWORK}_{_AD_TYPE}_report")
+    raise e  # 必须重新抛出，保持 Job 失败状态
+```
 
+---
+
+### Part 6: Data Validation
+
+```python
 # COMMAND ----------
 
 # MAGIC %md
@@ -566,9 +262,9 @@ if env_mode != 'staging':
 else:
     try:
         base_root = getattr(helper, "_DATA_BASE_PATH", None) or os.path.join(os.getcwd(), "data_output")
-        preview_root = os.path.join(base_root, helper._AD_TYPE_SPEND, _AD_NETWORK)
+        preview_root = os.path.join(base_root, _AD_TYPE, _AD_NETWORK)
         print(f"🔎 Scanning preview files under: {preview_root}")
-
+        
         if not os.path.exists(preview_root):
             print(f"⚠️ Preview directory does not exist: {preview_root}")
         else:
@@ -577,9 +273,9 @@ else:
                 for name in files:
                     if name.endswith('.preview'):
                         preview_files.append(os.path.join(root, name))
-
+            
             print(f"✅ Found {len(preview_files)} preview file(s)")
-
+            
             for sample_file in preview_files:
                 print(f"\n   Previewing: {sample_file}")
                 try:
@@ -593,6 +289,138 @@ else:
                     print(f"   ❌ Failed to read preview file: {e}")
     except Exception as e:
         print(f"❌ Preview scan error: {e}")
+```
+
+---
+
+## 环境模式说明
+
+| 模式 | 本地文件 | S3 上传 | 用途 |
+|------|----------|---------|------|
+| `dev` | 完整数据 (`.jsonl`) | ❌ | 本地开发调试 |
+| `staging` | 5MB 预览 (`.preview`) | ✅ (`reports_staging/`) | 测试验证 |
+| `prod` | ❌ | ✅ (`reports/`) | 生产环境 |
+
+---
+
+## 常见迁移模式
+
+### 模式 A：单账号 + 单日期范围
+
+**适用场景**：AppLovin Asset, Facebook 等
+
+```python
+def fetch_spend_report_task(ds: str):
+    cfg = helper.get_cfg('applovin')
+    
+    for item in cfg.get('spend'):
+        account_index = item.get('index')
+        
+        # 获取报告...
+        
+        helper.save_report(
+            ad_network=_AD_NETWORK,
+            ad_type=_AD_TYPE,
+            report=report_str,
+            exc_ds=ds,
+            start_ds=start_ds,
+            end_ds=end_ds,
+            custom=account_index
+        )
+```
+
+### 模式 B：多账号 + 多月份
+
+**适用场景**：Amazon IAP（按月获取）
+
+```python
+def fetch_iap_report_task(ds: str):
+    cfg = helper.get_cfg('amazon')
+    
+    for client_index, client in enumerate(cfg.get('iap'), start=1):
+        # 获取当月和上月数据
+        for t in [curr_dt, last_month_dt]:
+            year, month = t.year, t.month
+            last_day = _get_month_last_day(year, month)
+            
+            # 获取并处理报告...
+            
+            helper.save_report(
+                ad_network=_AD_NETWORK,
+                ad_type=_AD_TYPE,
+                report=report_data,
+                exc_ds=ds,
+                start_ds=f'{year}-{month:02d}-01',
+                end_ds=f'{year}-{month:02d}-{last_day:02d}',
+                custom=client_index
+            )
+```
+
+### 模式 C：嵌套数据结构
+
+**适用场景**：Apple Search Ads（Campaign → Keywords）
+
+```python
+def fetch_spend_report_task(ds: str):
+    campaign_infos = []
+    
+    for org in cfg.get('spend'):
+        # 获取 campaign 列表
+        campaigns = _get_campaigns(org)
+        
+        for campaign in campaigns:
+            # 获取 campaign 下的详细数据
+            report = _get_campaign_report(campaign)
+            detail_data = _parse_detail_data(report, campaign_info=campaign)
+            campaign_infos.extend(detail_data)
+    
+    # 合并所有数据后保存
+    helper.save_report(
+        ad_network=_AD_NETWORK,
+        ad_type=_AD_TYPE,
+        report=json.dumps(campaign_infos),
+        exc_ds=ds,
+        report_ds=ds
+    )
+```
+
+---
+
+## 辅助函数库
+
+### 获取月份最后一天
+
+```python
+def _get_month_last_day(year: int, month: int) -> int:
+    """获取指定月份的最后一天"""
+    if month == 12:
+        next_month_first = datetime(year + 1, 1, 1)
+    else:
+        next_month_first = datetime(year, month + 1, 1)
+    return (next_month_first - timedelta(days=1)).day
+```
+
+### CSV 添加额外列
+
+```python
+def _add_columns_to_csv(csv_str: str, extra_columns: dict) -> str:
+    """给 CSV 数据添加额外列"""
+    lines = csv_str.strip().split('\n')
+    if not lines:
+        return csv_str
+    
+    # 添加 header
+    extra_keys = ','.join(extra_columns.keys())
+    header = f"{lines[0]},{extra_keys}"
+    
+    # 添加数据
+    extra_values = ','.join(str(v) for v in extra_columns.values())
+    modified_lines = [header]
+    for line in lines[1:]:
+        if line.strip():
+            modified_lines.append(f"{line},{extra_values}")
+    
+    return '\n'.join(modified_lines)
 ```
 
 ---
@@ -601,21 +429,22 @@ else:
 
 新增 Notebook 前，请确认以下事项：
 
-- [ ] 文件名符合 `{ad_network}_spend_report.py` 格式
-- [ ] 包含完整的 5 个部分结构
-- [ ] `_AD_NETWORK` 常量已正确定义
-- [ ] 主函数 `fetch_spend_report_task(ds)` 已实现
-- [ ] Execution 部分使用 try-except 并调用 `helper.failure_callback()`
-- [ ] 异常被正确重新抛出 (`raise e`)
-- [ ] Data Validation 部分已添加
-- [ ] 日志输出使用规范的 Emoji 前缀
-- [ ] 函数包含完整的 docstring
+- [ ] 设置正确的 `_AD_NETWORK` 和 `_AD_TYPE`
+- [ ] 配置已添加到 Databricks Secrets
+- [ ] 主函数命名遵循 `fetch_{type}_report_task(ds)` 格式
+- [ ] 使用 `helper.save_report()` 保存数据
+- [ ] 包含 try-except 和 `helper.failure_callback()`
+- [ ] 包含 Data Validation 部分
+- [ ] 在 staging 环境测试通过
+- [ ] Preview 文件可正常读取（`pd.read_json(file, lines=True)`）
 
 ---
 
-## 更新记录
+## 常见问题排查
 
-| 日期 | 版本 | 更新内容 |
-|------|------|----------|
-| 2025-12-09 | v1.0 | 初始版本 |
-
+| 问题 | 可能原因 | 解决方案 |
+|------|----------|----------|
+| Preview 文件读取失败 | JSON 格式错误 | 检查是否有特殊字符，使用 `force_ascii=False` |
+| 多账号文件覆盖 | 未使用 `custom` 参数 | 添加 `custom=index` 区分文件名 |
+| S3 上传失败 | 配置缺失 | 检查 Secrets 中的 S3 配置 |
+| 数据被截断 | 5MB preview 限制 | 正常现象，完整数据在 S3 |

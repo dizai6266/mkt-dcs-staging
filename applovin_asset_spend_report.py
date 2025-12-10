@@ -159,9 +159,9 @@ def fetch_spend_report_task(ds: str):
                         exc_ds=ds, 
                         start_ds=start_ds, 
                         end_ds=end_ds,
-                        custom=account_index
+                        custom=account_id  # <--- CHANGE: Pass actual Account ID instead of index
                     )
-                    print(f"     ✅ Processed account {account_index} for {range_val}")
+                    print(f"     ✅ Processed account {account_id} for {range_val}")
                 else:
                     print(f"     ⚠️ No data returned for {range_val}")
                     
