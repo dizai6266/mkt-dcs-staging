@@ -17,6 +17,7 @@
 
 import requests
 import json
+import io
 from datetime import datetime, timedelta
 import sys
 import os
@@ -148,26 +149,38 @@ def fetch_max_ad_revenue_report_task(ds: str):
                         f'Failed to download report for {custom} on {report_day}: {report_response.status_code}'
                     )
 
-                # 保存报告
-                file_path = helper.save_report(
-                    ad_network=_AD_NETWORK,
-                    ad_type=_AD_TYPE,
-                    report=report_response.text,
-                    exc_ds=ds,
-                    start_ds=report_day,
-                    end_ds=report_day,
-                    custom=custom
-                )
-                file_paths.append(file_path)
-
                 # 处理 CSV 数据：添加 app_id 和 date 列
-                df = pd.read_csv(file_path)
+                df = pd.read_csv(io.StringIO(report_response.text))
                 if platform == 'ios':
                     df['app_id'] = 'id' + store_id
                 else:
                     df['app_id'] = store_id
                 df['date'] = report_day
-                df.to_csv(file_path, index=False)
+                
+                # 将 DataFrame 转换为 JSONL 格式
+                jsonl_lines = []
+                for _, row in df.iterrows():
+                    record = {}
+                    for col, val in row.items():
+                        if pd.isna(val):
+                            record[col] = None
+                        else:
+                            record[col] = val
+                    jsonl_lines.append(json.dumps(record, ensure_ascii=False))
+                jsonl_content = '\n'.join(jsonl_lines)
+
+                # 保存处理后的报告（JSONL 格式）
+                file_path = helper.save_report(
+                    ad_network=_AD_NETWORK,
+                    ad_type=_AD_TYPE,
+                    report=jsonl_content,
+                    exc_ds=ds,
+                    start_ds=report_day,
+                    end_ds=report_day,
+                    custom=custom,
+                    data_format='jsonl'  # 明确指定格式为 JSONL
+                )
+                file_paths.append(file_path)
 
                 print(f"      ✅ Saved report for {custom} on {report_day} ({len(df)} rows)")
 
