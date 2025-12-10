@@ -3,6 +3,8 @@
 # MAGIC # AppLovin MAX Ad Revenue Report
 # MAGIC
 # MAGIC 该 Notebook 从 AppLovin MAX API 获取广告收入数据。
+# MAGIC
+# MAGIC 注意：此报告需要两步请求（先获取报告 URL，再下载报告），无法直接使用 fetch_report。
 
 # COMMAND ----------
 
@@ -73,6 +75,10 @@ def fetch_max_ad_revenue_report_task(ds: str):
     """
     获取 AppLovin MAX 广告收入报告
     
+    注意：此 API 需要两步请求：
+    1. 获取报告下载 URL
+    2. 从 URL 下载实际报告
+    
     Args:
         ds: 执行日期 (YYYY-MM-DD)
     """
@@ -102,7 +108,6 @@ def fetch_max_ad_revenue_report_task(ds: str):
     print(f"📋 Processing {len(apps)} app(s)")
 
     base_url = "https://r.applovin.com/max/userAdRevenueReport"
-    file_paths = []
 
     current_date = start_dt
     while current_date <= end_dt:
@@ -117,6 +122,7 @@ def fetch_max_ad_revenue_report_task(ds: str):
 
             print(f"   📱 Processing App: {custom}")
 
+            # Step 1: 获取报告下载 URL
             params = {
                 "api_key": report_key,
                 "date": report_day,
@@ -125,73 +131,42 @@ def fetch_max_ad_revenue_report_task(ds: str):
                 "aggregated": 'true'
             }
 
-            try:
-                response = requests.get(base_url, params=params)
-                print(f"      Status Code: {response.status_code}")
+            response = requests.get(base_url, params=params, timeout=300)
+            print(f"      Status Code: {response.status_code}")
 
-                if response.status_code not in [200, 204, 422]:
-                    raise RuntimeError(
-                        f'Failed to fetch report URL for {custom} on {report_day}: {response.status_code} {response.text[:200]}'
-                    )
-
-                result = response.json()
-                ad_revenue_report_url = result.get('ad_revenue_report_url', '').replace('\\', '')
-
-                if not ad_revenue_report_url:
-                    print(f"      ⚠️ No report URL returned for {custom} on {report_day}")
-                    continue
-
-                print(f"      📥 Downloading report from URL...")
-                report_response = requests.get(ad_revenue_report_url)
-
-                if report_response.status_code != 200:
-                    raise RuntimeError(
-                        f'Failed to download report for {custom} on {report_day}: {report_response.status_code}'
-                    )
-
-                # 处理 CSV 数据：添加 app_id 和 date 列
-                df = pd.read_csv(io.StringIO(report_response.text))
-                if platform == 'ios':
-                    df['app_id'] = 'id' + store_id
-                else:
-                    df['app_id'] = store_id
-                df['date'] = report_day
-                
-                # 将 DataFrame 转换为 JSONL 格式
-                jsonl_lines = []
-                for _, row in df.iterrows():
-                    record = {}
-                    for col, val in row.items():
-                        if pd.isna(val):
-                            record[col] = None
-                        else:
-                            record[col] = val
-                    jsonl_lines.append(json.dumps(record, ensure_ascii=False))
-                jsonl_content = '\n'.join(jsonl_lines)
-
-                # 保存处理后的报告（JSONL 格式）
-                file_path = helper.save_report(
-                    ad_network=_AD_NETWORK,
-                    ad_type=_AD_TYPE,
-                    report=jsonl_content,
-                    exc_ds=ds,
-                    start_ds=report_day,
-                    end_ds=report_day,
-                    custom=custom,
-                    data_format='jsonl'  # 明确指定格式为 JSONL
+            if response.status_code not in [200, 204, 422]:
+                raise RuntimeError(
+                    f'Failed to fetch report URL for {custom} on {report_day}: {response.status_code} {response.text[:200]}'
                 )
-                file_paths.append(file_path)
 
-                print(f"      ✅ Saved report for {custom} on {report_day} ({len(df)} rows)")
+            result = response.json()
+            ad_revenue_report_url = result.get('ad_revenue_report_url', '').replace('\\', '')
 
-            except Exception as e:
-                print(f"      ❌ Error processing {custom} on {report_day}: {e}")
-                raise e
+            if not ad_revenue_report_url:
+                print(f"      ⚠️ No report URL returned for {custom} on {report_day}")
+                current_date += delta
+                continue
+
+            # Step 2: 从 URL 下载实际报告
+            print(f"      📥 Downloading report from URL...")
+            
+            req_opt = dict(url=ad_revenue_report_url)
+            
+            # 使用 helper.fetch_report 下载报告
+            helper.fetch_report(
+                ad_network=_AD_NETWORK,
+                ad_type=_AD_TYPE,
+                exc_ds=ds,
+                start_ds=report_day,
+                end_ds=report_day,
+                custom=custom,
+                **req_opt
+            )
+            print(f"      ✅ Saved report for {custom} on {report_day}")
 
         current_date += delta
 
     print(f"\n✅ Saved {_AD_NETWORK} report for {start_dt.strftime('%Y-%m-%d')} to {end_dt.strftime('%Y-%m-%d')}")
-    print(f"📊 Total files: {len(file_paths)}")
 
 # COMMAND ----------
 

@@ -1,8 +1,8 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # AppLovin Income Report
+# MAGIC # AppLovin MAX Report
 # MAGIC
-# MAGIC 该 Notebook 从 AppLovin API 获取发布者收入数据。
+# MAGIC 该 Notebook 从 AppLovin MAX API 获取广告单元配置数据。
 
 # COMMAND ----------
 
@@ -45,8 +45,8 @@ print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 # COMMAND ----------
 
 # --- [配置参数] ---
-_AD_NETWORK = 'applovin'
-_AD_TYPE = 'income'
+_AD_NETWORK = 'max'
+_AD_TYPE = 'mediation_config'
 _DATE_RANGE = 7
 
 # 获取 Widget 参数
@@ -68,21 +68,35 @@ print(f"📅 Execution Date: {ds_param}")
 
 # COMMAND ----------
 
-def fetch_income_report_task(ds: str):
+def get_ad_unit_ids(management_key: str):
+    """获取所有广告单元 ID"""
+    url = 'https://o.applovin.com/mediation/v1/ad_units'
+    headers = {'Api-Key': management_key}
+
+    response = requests.get(url, headers=headers, timeout=300)
+    if response.status_code != 200:
+        raise RuntimeError(f'Failed to fetch ad units: {response.status_code} {response.text[:200]}')
+    
+    results = [item['id'] for item in response.json()]
+    return results
+
+
+def fetch_max_report_task(ds: str):
     """
-    获取 AppLovin 收入报告
+    获取 AppLovin MAX 配置报告
     
     Args:
         ds: 执行日期 (YYYY-MM-DD)
     """
     try:
-        cfg = helper.get_cfg(_AD_NETWORK)
+        cfg = helper.get_cfg('applovin')
     except Exception as e:
         print(f"❌ Failed to load config: {e}")
         raise
 
-    if not cfg.get('income'):
-        print("⚠️ No income config found.")
+    management_key = cfg.get('management_key')
+    if not management_key:
+        print("⚠️ No management_key found in config.")
         return
 
     end_dt = datetime.strptime(ds, '%Y-%m-%d')
@@ -91,40 +105,20 @@ def fetch_income_report_task(ds: str):
     start_ds = start_dt.strftime('%Y-%m-%d')
 
     print(f"📆 Date Range: {start_ds} to {end_ds}")
-    print(f"📋 Processing {len(cfg.get('income'))} account(s)")
 
-    # 账号 ID 映射：index 1 -> 53127, index 2 -> 1385759904
-    ACCOUNT_ID_MAP = {
-        1: '53127',
-        2: '1385759904'
-    }
+    # 获取所有广告单元 ID
+    print("📡 Fetching ad unit IDs...")
+    ad_units = get_ad_unit_ids(management_key)
+    print(f"📋 Found {len(ad_units)} ad unit(s)")
 
-    for item in cfg.get('income'):
-        api_key = item.get('api_key')
-        account_index = item.get('index')
-        
-        # 优先使用配置中的 account_id，如果没有则使用映射
-        account_id = item.get('account_id') or ACCOUNT_ID_MAP.get(account_index)
-        
-        if not account_id:
-            print(f"⚠️ Skipping account with index {account_index} (no account_id found)")
-            continue
-        
-        print(f"\n--- Processing Account: index={account_index}, account_id={account_id} ---")
+    for ad_unit in ad_units:
+        print(f"   📦 Processing ad unit: {ad_unit}")
         
         req_opt = dict(
-            url='https://r.applovin.com/report',
-            params={
-                'api_key': api_key,
-                'start': start_ds,
-                'end': end_ds,
-                'columns': 'day,package_name,impressions,clicks,ctr,revenue,ecpm,country,ad_type,size,zone_id,platform',
-                'format': 'json',
-                'report_type': 'publisher',
-            }
+            url=f'https://o.applovin.com/mediation/v1/ad_unit/{ad_unit}',
+            params={'fields': 'ad_network_settings'},
+            headers={'Api-Key': management_key}
         )
-
-        print(f"   📡 Fetching report from: {req_opt['url']}...")
 
         # 使用 helper.fetch_report 获取报告
         helper.fetch_report(
@@ -133,10 +127,10 @@ def fetch_income_report_task(ds: str):
             exc_ds=ds,
             start_ds=start_ds,
             end_ds=end_ds,
-            custom=account_id,
+            custom=ad_unit,
             **req_opt
         )
-        print(f"   ✅ Processed account {account_id}")
+        print(f"      ✅ Processed ad unit {ad_unit}")
 
     print(f"\n✅ Saved {_AD_NETWORK} report for {start_ds} to {end_ds}")
 
@@ -150,13 +144,13 @@ def fetch_income_report_task(ds: str):
 print(f"🚀 Starting Job for {_AD_NETWORK}")
 
 try:
-    fetch_income_report_task(ds_param)
+    fetch_max_report_task(ds_param)
     print("\n✅ Job Finished Successfully")
 
 except Exception as e:
     print(f"\n❌ Job Failed: {e}")
     # on_failure_callback: 失败时发送飞书通知
-    helper.failure_callback(str(e), f"{_AD_NETWORK}_income_report")
+    helper.failure_callback(str(e), f"{_AD_NETWORK}_report")
     raise e
 
 # COMMAND ----------
