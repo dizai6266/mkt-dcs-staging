@@ -79,12 +79,18 @@ def fetch_spend_report_task(ds: str):
         print("⚠️ No spend config found.")
         return
 
-    # 账号 ID 映射：根据 spend 配置
-    # index 1 -> api_key "uTAga", index 2 -> api_key "ND6W", index 3 -> api_key "VA3d"
-    ACCOUNT_ID_MAP = {
+    # 文件名标识映射：使用 api_key 前几位作为文件名标识
+    # index 1 -> api_key "uTAga", index 2 -> api_key "ND6W"
+    API_KEY_MAP = {
         1: 'uTAga',
-        2: 'ND6W',
-        3: 'VA3d'
+        2: 'ND6W'
+    }
+    
+    # 内容 account_id 映射：用于 CSV 内容中的 account_id 字段
+    # index 1 -> '53127', index 2 -> '1385759904'
+    ACCOUNT_ID_MAP = {
+        1: '53127',
+        2: '1385759904'
     }
 
     # 只处理 index 为 1 和 2 的账号
@@ -100,14 +106,17 @@ def fetch_spend_report_task(ds: str):
         api_key = item.get('api_key')
         account_index = item.get('index')
         
-        # 优先使用配置中的 account_id，如果没有则使用映射
+        # 文件名标识：使用 api_key 前几位
+        file_identifier = API_KEY_MAP.get(account_index)
+        
+        # 内容 account_id：使用真实的 account_id
         account_id = item.get('account_id') or ACCOUNT_ID_MAP.get(account_index)
         
-        if not account_id:
-            print(f"⚠️ Skipping account with index {account_index} (no account_id found)")
+        if not file_identifier or not account_id:
+            print(f"⚠️ Skipping account with index {account_index} (missing mapping)")
             continue
         
-        print(f"\n--- Processing Account: index={account_index}, account_id={account_id} ---")
+        print(f"\n--- Processing Account: index={account_index}, file_id={file_identifier}, account_id={account_id} ---")
         
         for range_val in ['yesterday', 'last_7d']:
             print(f'   📡 Fetching report for {ds} (range={range_val})...')
@@ -161,9 +170,9 @@ def fetch_spend_report_task(ds: str):
                         exc_ds=ds, 
                         start_ds=start_ds, 
                         end_ds=end_ds,
-                        custom=account_id  # <--- CHANGE: Pass actual Account ID instead of index
+                        custom=file_identifier  # 文件名使用 api_key 前几位
                     )
-                    print(f"     ✅ Processed account {account_id} for {range_val}")
+                    print(f"     ✅ Processed account {file_identifier} (account_id: {account_id}) for {range_val}")
                 else:
                     print(f"     ⚠️ No data returned for {range_val}")
                     

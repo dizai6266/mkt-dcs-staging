@@ -155,14 +155,14 @@ def fetch_spend_report_task(ds: str):
         
         # 如果没有配置 account_id 或 account_name，尝试使用映射（向后兼容）
         if not account_identifier:
-            # 账号 ID 映射：根据 spend 配置
+            # API Key 映射：根据 spend 配置，使用 api_key 前几位作为标识
             # index 1 -> api_key "uTAga", index 2 -> api_key "ND6W", index 3 -> api_key "VA3d"
-            ACCOUNT_ID_MAP = {
+            API_KEY_MAP = {
                 1: 'uTAga',
                 2: 'ND6W',
                 3: 'VA3d'
             }
-            account_identifier = ACCOUNT_ID_MAP.get(account_index)
+            account_identifier = API_KEY_MAP.get(account_index)
         
         if not account_identifier:
             print(f"⚠️ Skipping account with index {account_index} (no account_id or account_name found)")

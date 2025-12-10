@@ -93,9 +93,9 @@ def fetch_income_report_task(ds: str):
     print(f"📆 Date Range: {start_ds} to {end_ds}")
     print(f"📋 Processing {len(cfg.get('income'))} account(s)")
 
-    # 账号 ID 映射：根据 income 配置
+    # API Key 映射：根据 income 配置，使用 api_key 前几位作为标识
     # index 1 -> api_key "uTAg", index 2 -> api_key "VA3d"
-    ACCOUNT_ID_MAP = {
+    API_KEY_MAP = {
         1: 'uTAg',
         2: 'VA3d'
     }
@@ -105,7 +105,7 @@ def fetch_income_report_task(ds: str):
         account_index = item.get('index')
         
         # 优先使用配置中的 account_id，如果没有则使用映射
-        account_id = item.get('account_id') or ACCOUNT_ID_MAP.get(account_index)
+        account_id = item.get('account_id') or API_KEY_MAP.get(account_index)
         
         if not account_id:
             print(f"⚠️ Skipping account with index {account_index} (no account_id found)")
