@@ -79,10 +79,12 @@ def fetch_spend_report_task(ds: str):
         print("⚠️ No spend config found.")
         return
 
-    # 账号 ID 映射：index 1 -> 53127, index 2 -> 1385759904
+    # 账号 ID 映射：根据 spend 配置
+    # index 1 -> api_key "uTAga", index 2 -> api_key "ND6W", index 3 -> api_key "VA3d"
     ACCOUNT_ID_MAP = {
-        1: '53127',
-        2: '1385759904'
+        1: 'uTAga',
+        2: 'ND6W',
+        3: 'VA3d'
     }
 
     # 只处理 index 为 1 和 2 的账号

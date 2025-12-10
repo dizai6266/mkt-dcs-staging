@@ -149,7 +149,26 @@ def fetch_spend_report_task(ds: str):
     for item in spend_accounts:
         api_key = item.get('api_key')
         account_index = item.get('index')
-        print(f"\n   🔑 Processing account: {account_index}")
+        
+        # 优先使用配置中的 account_id 或 account_name，如果没有则使用 account_id 映射
+        account_identifier = item.get('account_id') or item.get('account_name')
+        
+        # 如果没有配置 account_id 或 account_name，尝试使用映射（向后兼容）
+        if not account_identifier:
+            # 账号 ID 映射：根据 spend 配置
+            # index 1 -> api_key "uTAga", index 2 -> api_key "ND6W", index 3 -> api_key "VA3d"
+            ACCOUNT_ID_MAP = {
+                1: 'uTAga',
+                2: 'ND6W',
+                3: 'VA3d'
+            }
+            account_identifier = ACCOUNT_ID_MAP.get(account_index)
+        
+        if not account_identifier:
+            print(f"⚠️ Skipping account with index {account_index} (no account_id or account_name found)")
+            continue
+        
+        print(f"\n   🔑 Processing account: {account_identifier} (index: {account_index})")
         
         start_dt = initial_start_dt
         while start_dt <= end_dt:
@@ -185,7 +204,7 @@ def fetch_spend_report_task(ds: str):
                 # 标准化 CSV 字段名
                 report_str = _normalize_csv_header(report_str)
                 
-                # 保存报告（使用 custom 参数区分账号）
+                # 保存报告（使用真实账号标识区分账号）
                 helper.save_report(
                     ad_network=_AD_NETWORK,
                     ad_type=_AD_TYPE,
@@ -193,7 +212,7 @@ def fetch_spend_report_task(ds: str):
                     exc_ds=ds,
                     start_ds=start_ds,
                     end_ds=end_ds,
-                    custom=account_index
+                    custom=account_identifier
                 )
                 print(f"      ✅ Saved report for {start_ds}")
             else:

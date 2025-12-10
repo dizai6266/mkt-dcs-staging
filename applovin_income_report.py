@@ -93,10 +93,11 @@ def fetch_income_report_task(ds: str):
     print(f"📆 Date Range: {start_ds} to {end_ds}")
     print(f"📋 Processing {len(cfg.get('income'))} account(s)")
 
-    # 账号 ID 映射：index 1 -> 53127, index 2 -> 1385759904
+    # 账号 ID 映射：根据 income 配置
+    # index 1 -> api_key "uTAg", index 2 -> api_key "VA3d"
     ACCOUNT_ID_MAP = {
-        1: '53127',
-        2: '1385759904'
+        1: 'uTAg',
+        2: 'VA3d'
     }
 
     for item in cfg.get('income'):
