@@ -128,9 +128,15 @@ def detect_format(text_data: str) -> DataFormat:
                     return DataFormat.API_RESPONSE
                 return DataFormat.JSON_OBJECT
         except json.JSONDecodeError:
-            pass
+            # 4. 【重要】启发式检测：如果是截断的 JSON，通过特征判断
+            # 这对于流式处理非常重要，因为只读取了部分数据
+            if _detect_api_response_heuristic(text_stripped):
+                return DataFormat.API_RESPONSE
+            # 检查是否像是单个 JSON 对象（被截断的）
+            if _detect_json_object_heuristic(text_stripped):
+                return DataFormat.JSON_OBJECT
     
-    # 4. 更严格的 CSV 检测：检查是否有明确的 CSV 特征
+    # 5. 更严格的 CSV 检测：检查是否有明确的 CSV 特征
     # - 第一行包含逗号分隔的字段名
     # - 不以 { 或 [ 开头
     if not text_stripped.startswith('{') and not text_stripped.startswith('['):
@@ -141,9 +147,39 @@ def detect_format(text_data: str) -> DataFormat:
             if ',' in first_line or '\t' in first_line:
                 return DataFormat.CSV
     
-    # 5. 无法识别的格式
+    # 6. 无法识别的格式
     logging.warning(f"   ⚠️ Could not detect format. First 100 chars: {text_stripped[:100]}")
     return DataFormat.UNKNOWN
+
+
+def _detect_api_response_heuristic(text_data: str) -> bool:
+    """
+    启发式检测：判断是否为 API 响应格式（即使 JSON 被截断）
+    
+    特征：
+    - 以 { 开头
+    - 包含 "code": 或 "status":
+    - 包含 "results": 或 "data": 等数据字段
+    """
+    # 检查常见的 API 响应特征
+    has_code = '"code"' in text_data or '"status"' in text_data
+    has_data_field = any(f'"{key}"' in text_data for key in API_RESPONSE_DATA_KEYS)
+    
+    return has_code and has_data_field
+
+
+def _detect_json_object_heuristic(text_data: str) -> bool:
+    """
+    启发式检测：判断是否为 JSON 对象格式（即使被截断）
+    
+    特征：
+    - 以 { 开头
+    - 包含 "key": 格式的键值对
+    """
+    import re
+    # 检查是否有 JSON 键值对模式
+    pattern = r'"[a-zA-Z_][a-zA-Z0-9_]*"\s*:'
+    return bool(re.search(pattern, text_data))
 
 
 def _is_api_response(data: dict) -> bool:
@@ -386,8 +422,13 @@ class StreamingParser:
         if isinstance(content, bytes):
             content = content.decode('utf-8')
         
+        # 如果格式是 UNKNOWN，重新检测（因为现在有完整数据）
+        if data_format == DataFormat.UNKNOWN:
+            data_format = detect_format(content)
+            print(f"   📋 Re-detected format with full content: {data_format.value}")
+        
         # 转换为 JSONL
-        jsonl_content, row_count, _ = convert_to_jsonl(content, data_format)
+        jsonl_content, row_count, actual_format = convert_to_jsonl(content, data_format)
         
         if not jsonl_content:
             return
@@ -443,3 +484,139 @@ def records_to_jsonl(records: List[dict]) -> str:
         str: JSONL 格式字符串
     """
     return '\n'.join(json.dumps(record, ensure_ascii=False) for record in records)
+
+
+# ============================================================================
+# AppLovin 专用转换器
+# ============================================================================
+
+def expand_applovin_max_ad_unit(ad_unit_data: dict) -> List[dict]:
+    """
+    展开 AppLovin MAX 广告单元数据中的 ad_network_settings
+    
+    将每个 network setting 展开为单独的行
+    
+    输入格式:
+    {
+        "id": "xxx",
+        "name": "...",
+        "platform": "ios",
+        "ad_format": "INTER",
+        "package_name": "com.xxx",
+        "disabled": false,
+        "ad_network_settings": {
+            "UNITY_BIDDING": {"disabled": false, "ad_network_ad_unit_id": "xxx"},
+            "ADMOB_BIDDING": {"disabled": false, "ad_network_ad_unit_id": "yyy"},
+            ...
+        }
+    }
+    
+    输出格式 (每个 network 一行):
+    {"id":"xxx","name":"...","platform":"ios","ad_format":"INTER","package_name":"com.xxx","disabled":false,"network":"UNITY_BIDDING","ad_network_ad_unit_id":"xxx"}
+    
+    Args:
+        ad_unit_data: 广告单元数据字典
+        
+    Returns:
+        List[dict]: 展开后的记录列表
+    """
+    # 基础字段
+    base_fields = ['id', 'name', 'platform', 'ad_format', 'package_name', 'disabled', 'has_active_experiment']
+    base_record = {k: ad_unit_data.get(k) for k in base_fields if k in ad_unit_data}
+    
+    # 获取 ad_network_settings
+    ad_network_settings = ad_unit_data.get('ad_network_settings', {})
+    
+    # 如果没有 network settings，返回基础记录
+    if not ad_network_settings:
+        return [base_record]
+    
+    # 展开每个 network setting
+    expanded_records = []
+    
+    # ad_network_settings 可能是 dict 或 list
+    if isinstance(ad_network_settings, dict):
+        for network_name, network_config in ad_network_settings.items():
+            record = base_record.copy()
+            record['network'] = network_name
+            
+            # 提取 network 配置中的字段
+            if isinstance(network_config, dict):
+                record['network_disabled'] = network_config.get('disabled', False)
+                record['ad_network_ad_unit_id'] = network_config.get('ad_network_ad_unit_id', '')
+                # 可能还有其他字段
+                for key in ['cpm_floor', 'cpm_floor_value']:
+                    if key in network_config:
+                        record[key] = network_config[key]
+            
+            expanded_records.append(record)
+    
+    elif isinstance(ad_network_settings, list):
+        # 如果是列表格式
+        for network_config in ad_network_settings:
+            if isinstance(network_config, dict):
+                record = base_record.copy()
+                # 尝试获取 network 名称
+                network_name = network_config.get('network') or network_config.get('name') or 'unknown'
+                record['network'] = network_name
+                record['network_disabled'] = network_config.get('disabled', False)
+                record['ad_network_ad_unit_id'] = network_config.get('ad_network_ad_unit_id', '')
+                
+                expanded_records.append(record)
+    
+    return expanded_records if expanded_records else [base_record]
+
+
+def convert_applovin_max_config(text_data: str) -> Tuple[str, int]:
+    """
+    转换 AppLovin MAX 配置 API 响应
+    
+    自动处理：
+    1. API 响应包装格式 {"code": 200, "results": [...]}
+    2. 单个广告单元对象
+    3. 展开 ad_network_settings
+    
+    Args:
+        text_data: 原始 API 响应文本
+        
+    Returns:
+        Tuple[str, int]: (JSONL 内容, 行数)
+    """
+    if not text_data or not text_data.strip():
+        return '', 0
+    
+    text_stripped = text_data.strip()
+    
+    try:
+        data = json.loads(text_stripped)
+    except json.JSONDecodeError as e:
+        logging.error(f"❌ Failed to parse JSON: {e}")
+        return '', 0
+    
+    all_records = []
+    
+    # 如果是 API 响应包装格式
+    if isinstance(data, dict) and _is_api_response(data):
+        extracted_data, field_name = _extract_data_from_api_response(data)
+        print(f"   📦 Extracted {len(extracted_data)} ad units from '{field_name}' field")
+        
+        for ad_unit in extracted_data:
+            if isinstance(ad_unit, dict):
+                all_records.extend(expand_applovin_max_ad_unit(ad_unit))
+    
+    # 如果是单个广告单元对象
+    elif isinstance(data, dict):
+        all_records.extend(expand_applovin_max_ad_unit(data))
+    
+    # 如果是广告单元列表
+    elif isinstance(data, list):
+        for ad_unit in data:
+            if isinstance(ad_unit, dict):
+                all_records.extend(expand_applovin_max_ad_unit(ad_unit))
+    
+    if not all_records:
+        return '', 0
+    
+    print(f"   📊 Expanded to {len(all_records)} network records")
+    lines = [json.dumps(record, ensure_ascii=False) for record in all_records]
+    return '\n'.join(lines), len(lines)

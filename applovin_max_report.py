@@ -28,6 +28,7 @@ if current_dir not in sys.path:
 
 from utils import helper
 from utils.config_manager import get_env_mode, setup_feishu_notify
+from utils.data_parser import convert_applovin_max_config
 import importlib
 importlib.reload(helper)
 
@@ -111,28 +112,57 @@ def fetch_max_report_task(ds: str):
     ad_units = get_ad_unit_ids(management_key)
     print(f"📋 Found {len(ad_units)} ad unit(s)")
 
+    # 收集所有广告单元的数据
+    all_records = []
+    
     for ad_unit in ad_units:
         print(f"   📦 Processing ad unit: {ad_unit}")
         
-        req_opt = dict(
-            url=f'https://o.applovin.com/mediation/v1/ad_unit/{ad_unit}',
-            params={'fields': 'ad_network_settings'},
-            headers={'Api-Key': management_key}
-        )
+        try:
+            url = f'https://o.applovin.com/mediation/v1/ad_unit/{ad_unit}'
+            headers = {'Api-Key': management_key}
+            params = {'fields': 'ad_network_settings'}
+            
+            response = requests.get(url, headers=headers, params=params, timeout=300)
+            
+            if response.status_code != 200:
+                print(f"      ⚠️ Failed to fetch ad unit {ad_unit}: {response.status_code}")
+                continue
+            
+            # 使用专用转换器展开 ad_network_settings
+            jsonl_content, row_count = convert_applovin_max_config(response.text)
+            
+            if jsonl_content:
+                # 收集记录
+                for line in jsonl_content.split('\n'):
+                    if line.strip():
+                        all_records.append(line)
+                print(f"      ✅ Extracted {row_count} network records")
+            else:
+                print(f"      ⚠️ No data extracted for ad unit {ad_unit}")
+                
+        except Exception as e:
+            print(f"      ❌ Error processing ad unit {ad_unit}: {e}")
+            continue
 
-        # 使用 helper.fetch_report 获取报告
-        helper.fetch_report(
+    print(f"\n📊 Total records collected: {len(all_records)}")
+    
+    # 合并所有记录并保存
+    if all_records:
+        combined_content = '\n'.join(all_records)
+        
+        helper.save_report(
             ad_network=_AD_NETWORK,
             ad_type=_AD_TYPE,
+            report_content=combined_content,
             exc_ds=ds,
             start_ds=start_ds,
             end_ds=end_ds,
-            custom=ad_unit,
-            **req_opt
+            data_format='jsonl'  # 已经是 JSONL 格式
         )
-        print(f"      ✅ Processed ad unit {ad_unit}")
-
-    print(f"\n✅ Saved {_AD_NETWORK} report for {start_ds} to {end_ds}")
+        print(f"✅ Saved {_AD_NETWORK} report for {start_ds} to {end_ds}")
+    else:
+        print(f"⚠️ No data to save for {_AD_NETWORK}")
 
 # COMMAND ----------
 
