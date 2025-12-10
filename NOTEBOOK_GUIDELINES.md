@@ -216,7 +216,12 @@ helper.save_report(
 | JSONL | 每行以 `{` 开头 `}` 结尾 | 直接验证，不转换 |
 | JSON Array | 以 `[` 开头 | 转换为 JSONL |
 | JSON Object | 以 `{` 开头（单行） | 转换为单行 JSONL |
+| **API Response** 🆕 | `{"code":200,"results":[...]}` | 自动提取 `results` 数组 |
 | CSV | 其他情况 | 转换为 JSONL |
+
+**特别说明**：
+- `API Response` 格式会自动识别 `results`, `data`, `items`, `records` 等常见字段
+- 即使是大文件（流式处理只读取 4KB），也能通过启发式方法检测格式
 
 ---
 
@@ -305,9 +310,34 @@ else:
 
 ## 常见迁移模式
 
-### 模式 A：单账号 + 单日期范围
+### 模式 A：单账号 + 单日期范围（最简单）
 
-**适用场景**：AppLovin Asset, Facebook 等
+**适用场景**：Aarki, AppLovin Asset 等
+**参考模板**：`aarki_spend_report.py` ⭐
+
+```python
+def fetch_spend_report_task(ds: str):
+    cfg = helper.get_cfg(_AD_NETWORK)
+    
+    req_opt = dict(
+        url='https://api.example.com/report',
+        params={'token': cfg.get('token'), 'start': start_ds, 'end': end_ds}
+    )
+    
+    # 一行搞定！自动处理格式检测、转换、上传
+    helper.fetch_report(
+        ad_network=_AD_NETWORK,
+        ad_type=_AD_TYPE,
+        exc_ds=ds,
+        start_ds=start_ds,
+        end_ds=end_ds,
+        **req_opt
+    )
+```
+
+### 模式 B：多账号
+
+**适用场景**：AppLovin（多个 api_key）
 
 ```python
 def fetch_spend_report_task(ds: str):
@@ -315,73 +345,206 @@ def fetch_spend_report_task(ds: str):
     
     for item in cfg.get('spend'):
         account_index = item.get('index')
+        api_key = item.get('api_key')
         
-        # 获取报告...
+        req_opt = dict(url='...', params={'api_key': api_key, ...})
         
-        helper.save_report(
+        helper.fetch_report(
             ad_network=_AD_NETWORK,
             ad_type=_AD_TYPE,
-            report=report_str,
             exc_ds=ds,
             start_ds=start_ds,
             end_ds=end_ds,
-            custom=account_index
+            custom=account_index,  # 区分多账号文件名
+            **req_opt
         )
 ```
 
-### 模式 B：多账号 + 多月份
+### 模式 C：API 响应包装格式
 
-**适用场景**：Amazon IAP（按月获取）
+**适用场景**：AppLovin Income/MAX Revenue（返回 `{"code":200,"results":[...]}`）
+**参考模板**：`applovin_income_report.py`
 
 ```python
-def fetch_iap_report_task(ds: str):
-    cfg = helper.get_cfg('amazon')
-    
-    for client_index, client in enumerate(cfg.get('iap'), start=1):
-        # 获取当月和上月数据
-        for t in [curr_dt, last_month_dt]:
-            year, month = t.year, t.month
-            last_day = _get_month_last_day(year, month)
-            
-            # 获取并处理报告...
-            
-            helper.save_report(
-                ad_network=_AD_NETWORK,
-                ad_type=_AD_TYPE,
-                report=report_data,
-                exc_ds=ds,
-                start_ds=f'{year}-{month:02d}-01',
-                end_ds=f'{year}-{month:02d}-{last_day:02d}',
-                custom=client_index
-            )
+# 无需特殊处理！系统自动识别并提取 results 数组
+helper.fetch_report(
+    ad_network=_AD_NETWORK,
+    ad_type=_AD_TYPE,
+    exc_ds=ds,
+    start_ds=start_ds,
+    end_ds=end_ds,
+    **req_opt
+)
 ```
 
-### 模式 C：嵌套数据结构
+### 模式 D：需要展开嵌套字段 🆕
 
-**适用场景**：Apple Search Ads（Campaign → Keywords）
+**适用场景**：AppLovin MAX Config（需要展开 `ad_network_settings`）
+**参考模板**：`applovin_max_report.py`
+
+```python
+from utils.data_parser import convert_applovin_max_config
+
+def fetch_max_report_task(ds: str):
+    all_records = []
+    
+    for ad_unit in ad_units:
+        response = requests.get(f'https://api.../ad_unit/{ad_unit}', ...)
+        
+        # 使用专用转换器展开 ad_network_settings
+        jsonl_content, row_count = convert_applovin_max_config(response.text)
+        
+        for line in jsonl_content.split('\n'):
+            if line.strip():
+                all_records.append(line)
+    
+    # 保存合并后的数据
+    helper.save_report(
+        ad_network=_AD_NETWORK,
+        ad_type=_AD_TYPE,
+        report_content='\n'.join(all_records),
+        exc_ds=ds,
+        start_ds=start_ds,
+        end_ds=end_ds,
+        data_format='jsonl'
+    )
+```
+
+**展开效果**：
+```
+输入: {"id":"xxx", "ad_network_settings": {"UNITY": {...}, "ADMOB": {...}}}
+输出:
+{"id":"xxx", "network":"UNITY", "ad_network_ad_unit_id":"..."}
+{"id":"xxx", "network":"ADMOB", "ad_network_ad_unit_id":"..."}
+```
+
+### 模式 E：多层嵌套 + 合并
+
+**适用场景**：Apple Search Ads（Org → Campaign → Keywords）
 
 ```python
 def fetch_spend_report_task(ds: str):
-    campaign_infos = []
+    all_data = []
     
     for org in cfg.get('spend'):
-        # 获取 campaign 列表
         campaigns = _get_campaigns(org)
         
         for campaign in campaigns:
-            # 获取 campaign 下的详细数据
             report = _get_campaign_report(campaign)
             detail_data = _parse_detail_data(report, campaign_info=campaign)
-            campaign_infos.extend(detail_data)
+            all_data.extend(detail_data)
     
     # 合并所有数据后保存
     helper.save_report(
         ad_network=_AD_NETWORK,
         ad_type=_AD_TYPE,
-        report=json.dumps(campaign_infos),
+        report=json.dumps(all_data),
         exc_ds=ds,
         report_ds=ds
     )
+```
+
+---
+
+## 数据格式解析器 (data_parser.py) 🆕
+
+`utils/data_parser.py` 提供了强大的数据格式自动识别和转换功能。
+
+### 支持的数据格式
+
+| 格式 | 示例 | 自动处理 |
+|------|------|----------|
+| CSV | `col1,col2\nval1,val2` | ✅ 转换为 JSONL |
+| JSONL | `{"a":1}\n{"a":2}` | ✅ 直接验证 |
+| JSON Array | `[{"a":1},{"a":2}]` | ✅ 转换为 JSONL |
+| JSON Object | `{"a":1}` | ✅ 转换为单行 JSONL |
+| API Response | `{"code":200,"results":[...]}` | ✅ 提取 `results` 数组 |
+
+### 核心函数
+
+```python
+from utils.data_parser import (
+    detect_format,           # 检测数据格式
+    convert_to_jsonl,        # 转换为 JSONL
+    expand_applovin_max_ad_unit,  # 展开 ad_network_settings
+    convert_applovin_max_config,  # AppLovin MAX 配置转换
+)
+```
+
+### 使用示例
+
+#### 1. 格式检测
+
+```python
+from utils.data_parser import detect_format, DataFormat
+
+# API 响应格式
+fmt = detect_format('{"code":200,"results":[{"day":"2025-12-09"}]}')
+print(fmt)  # DataFormat.API_RESPONSE
+
+# CSV 格式
+fmt = detect_format('day,revenue\n2025-12-09,100')
+print(fmt)  # DataFormat.CSV
+```
+
+#### 2. 转换为 JSONL
+
+```python
+from utils.data_parser import convert_to_jsonl
+
+# API 响应自动提取 results
+api_resp = '{"code":200,"results":[{"day":"2025-12-09","revenue":100}]}'
+jsonl, count, fmt = convert_to_jsonl(api_resp)
+print(f"Converted {count} rows")
+print(jsonl)  # {"day":"2025-12-09","revenue":100}
+```
+
+#### 3. 展开 AppLovin MAX 配置
+
+```python
+from utils.data_parser import expand_applovin_max_ad_unit
+
+ad_unit = {
+    "id": "abc123",
+    "name": "Test_iOS_Inter",
+    "platform": "ios",
+    "ad_network_settings": {
+        "UNITY_BIDDING": {"disabled": False, "ad_network_ad_unit_id": "unity_xxx"},
+        "ADMOB_BIDDING": {"disabled": False, "ad_network_ad_unit_id": "admob_yyy"}
+    }
+}
+
+records = expand_applovin_max_ad_unit(ad_unit)
+# 输出 2 条记录，每个 network 一行
+for r in records:
+    print(r)
+# {'id': 'abc123', 'name': 'Test_iOS_Inter', 'platform': 'ios', 'network': 'UNITY_BIDDING', 'ad_network_ad_unit_id': 'unity_xxx'}
+# {'id': 'abc123', 'name': 'Test_iOS_Inter', 'platform': 'ios', 'network': 'ADMOB_BIDDING', 'ad_network_ad_unit_id': 'admob_yyy'}
+```
+
+### 添加自定义转换器
+
+如果遇到新的嵌套数据格式，可以在 `data_parser.py` 中添加新的转换函数：
+
+```python
+def expand_your_nested_data(data: dict) -> List[dict]:
+    """
+    展开你的嵌套数据
+    
+    参考 expand_applovin_max_ad_unit() 的实现
+    """
+    base_fields = ['id', 'name', ...]
+    base_record = {k: data.get(k) for k in base_fields}
+    
+    nested_items = data.get('nested_field', [])
+    expanded = []
+    
+    for item in nested_items:
+        record = base_record.copy()
+        record['nested_key'] = item.get('key')
+        expanded.append(record)
+    
+    return expanded
 ```
 
 ---
@@ -427,16 +590,27 @@ def _add_columns_to_csv(csv_str: str, extra_columns: dict) -> str:
 
 ## Checklist
 
-新增 Notebook 前，请确认以下事项：
+### 新增 Notebook 前，请确认以下事项：
 
+**基础配置**
 - [ ] 设置正确的 `_AD_NETWORK` 和 `_AD_TYPE`
-- [ ] 配置已添加到 Databricks Secrets
+- [ ] 配置已添加到 Databricks Secrets（`secret_{network_name}`）
 - [ ] 主函数命名遵循 `fetch_{type}_report_task(ds)` 格式
-- [ ] 使用 `helper.save_report()` 保存数据
+
+**数据处理**
+- [ ] 使用 `helper.fetch_report()` 或 `helper.save_report()` 保存数据
+- [ ] 如果是 API 响应包装格式（`{"code":200,"results":[...]}`），无需特殊处理
+- [ ] 如果有嵌套字段需要展开，添加自定义转换器（参考 `expand_applovin_max_ad_unit()`）
+
+**错误处理**
 - [ ] 包含 try-except 和 `helper.failure_callback()`
 - [ ] 包含 Data Validation 部分
+
+**测试验证**
 - [ ] 在 staging 环境测试通过
+- [ ] 检查 `data_output/raw_download/` 下的原始响应（调试用）
 - [ ] Preview 文件可正常读取（`pd.read_json(file, lines=True)`）
+- [ ] 输出格式符合预期（每行一个 JSON 对象）
 
 ---
 
@@ -444,7 +618,33 @@ def _add_columns_to_csv(csv_str: str, extra_columns: dict) -> str:
 
 | 问题 | 可能原因 | 解决方案 |
 |------|----------|----------|
-| Preview 文件读取失败 | JSON 格式错误 | 检查是否有特殊字符，使用 `force_ascii=False` |
+| Preview 文件读取失败 | JSON 格式错误 | 检查是否有特殊字符，使用 `ensure_ascii=False` |
 | 多账号文件覆盖 | 未使用 `custom` 参数 | 添加 `custom=index` 区分文件名 |
 | S3 上传失败 | 配置缺失 | 检查 Secrets 中的 S3 配置 |
 | 数据被截断 | 5MB preview 限制 | 正常现象，完整数据在 S3 |
+| **格式检测为 UNKNOWN** 🆕 | 流式处理只读取 4KB | 系统会自动重新检测，或检查 `.raw` 文件 |
+| **API 响应未正确解析** 🆕 | 非标准包装格式 | 检查字段名是否在 `API_RESPONSE_DATA_KEYS` 中 |
+| **嵌套数据未展开** 🆕 | 需要自定义转换器 | 参考 `expand_applovin_max_ad_unit()` 添加转换器 |
+| **Preview 显示原始格式** 🆕 | 格式转换失败 | 检查 `raw_download/` 下的原始响应格式 |
+
+### 调试步骤
+
+1. **查看原始响应**（staging 模式）：
+   ```
+   data_output/raw_download/{ad_type}/{ad_network}/{date}/*.raw
+   ```
+
+2. **测试格式检测**：
+   ```python
+   from utils.data_parser import detect_format
+   with open('xxx.raw', 'r') as f:
+       sample = f.read(1000)
+   print(detect_format(sample))
+   ```
+
+3. **手动测试转换**：
+   ```python
+   from utils.data_parser import convert_to_jsonl
+   jsonl, count, fmt = convert_to_jsonl(sample_data)
+   print(f"Format: {fmt}, Rows: {count}")
+   ```

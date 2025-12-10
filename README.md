@@ -6,18 +6,74 @@ Marketing Data Collection System - Databricks Notebooks 项目。
 
 ---
 
+## 🚀 快速开始：添加新渠道
+
+> 5 分钟快速添加一个新的广告渠道报告
+
+### Step 1: 复制模板
+
+复制 `aarki_spend_report.py` 作为模板（最简洁的示例）
+
+### Step 2: 修改配置
+
+```python
+# --- [配置参数] ---
+_AD_NETWORK = 'your_network'   # 渠道名（小写，用于文件名和路径）
+_AD_TYPE = 'spend'              # 报告类型: spend/income/iap/mediation/attribution
+_DATE_RANGE = 7                 # 回溯天数
+```
+
+### Step 3: 修改 API 请求
+
+```python
+req_opt = dict(
+    url='https://api.your-network.com/report',
+    params={'api_key': cfg.get('api_key'), 'start': start_ds, 'end': end_ds},
+    headers={'Authorization': f'Bearer {cfg.get("token")}'}  # 可选
+)
+
+helper.fetch_report(
+    ad_network=_AD_NETWORK,
+    ad_type=_AD_TYPE,
+    exc_ds=ds,
+    start_ds=start_ds,
+    end_ds=end_ds,
+    **req_opt
+)
+```
+
+### Step 4: 添加密钥配置
+
+```bash
+databricks secrets put --scope dcs-staging-secret --key secret_your_network
+# 输入 JSON: {"api_key": "xxx", "token": "xxx"}
+```
+
+**就这么简单！** 🎉 系统会自动处理：
+- ✅ 数据格式检测（CSV/JSON/JSONL/API响应）
+- ✅ 流式下载（大文件不会 OOM）
+- ✅ 转换为 JSONL 格式
+- ✅ 上传到 S3
+- ✅ 保存本地预览（staging 模式）
+
+👉 详细开发规范请看 [NOTEBOOK_GUIDELINES.md](./NOTEBOOK_GUIDELINES.md)
+
+---
+
 ## 📁 项目结构
 
 ```
 mkt-dcs-staging/
 ├── README.md                      # 本文档
-├── NOTEBOOK_GUIDELINES.md         # Notebook 开发规范
+├── NOTEBOOK_GUIDELINES.md         # Notebook 开发规范（必读）
 ├── config/
-│   └── dag_id_to_s3_paths.json    # S3 路径参考文档（仅供参考，代码不依赖）
+│   └── dag_id_to_s3_paths.json    # S3 路径参考文档（仅供参考）
 ├── utils/
 │   ├── config_manager.py          # 配置管理器（环境模式、密钥读取）
+│   ├── data_parser.py             # 🆕 数据格式解析器（自动格式转换）
 │   └── helper.py                  # 通用工具函数（S3 上传、报告保存等）
 ├── *_spend_report.py              # 消耗报告 Notebooks
+├── *_income_report.py             # 收入报告 Notebooks
 ├── *_audience.py                  # 受众上传 Notebooks
 └── data_output/                   # 本地数据输出目录（staging 模式）
 ```
@@ -196,23 +252,31 @@ ENV_MODE=prod
 
 ### 消耗报告 (Spend Report)
 
-| Notebook | 渠道 | 调度 |
-|----------|------|------|
-| `appsflyer_spend_report.py` | AppsFlyer | 每日 |
-| `apple_search_spend_report.py` | Apple Search Ads | 每日 |
-| `applovin_asset_spend_report.py` | AppLovin | 每日 |
-| `aarki_spend_report.py` | Aarki | 每日 |
+| Notebook | 渠道 | 数据格式 | 说明 |
+|----------|------|----------|------|
+| `aarki_spend_report.py` | Aarki | CSV | ⭐ 最简模板 |
+| `apple_search_spend_report.py` | Apple Search Ads | JSON | 嵌套数据结构 |
+| `applovin_asset_spend_report.py` | AppLovin | CSV | 多账号 |
 
-### 受众上传 (Audience Upload)
+### 收入报告 (Income/Revenue Report)
 
-| Notebook | 渠道 | 调度 |
-|----------|------|------|
-| `facebook_audience.py` | Facebook | 每日 |
-| `facebook_audience_weekly.py` | Facebook | 每周一 |
-| `aarki_audience.py` | Aarki | 每日 |
-| `af_audience.py` | AppsFlyer | 每日 |
-| `af_audience_2.py` | AppsFlyer (v2) | 每日 |
-| `af_audience_apl.py` | AppsFlyer (APL) | 每日 |
+| Notebook | 渠道 | 数据格式 | 说明 |
+|----------|------|----------|------|
+| `applovin_income_report.py` | AppLovin | API响应 | `{"code":200,"results":[...]}` |
+| `applovin_max_revenue_report.py` | AppLovin MAX | API响应 | 同上 |
+| `applovin_max_ad_revenue_report.py` | AppLovin MAX | API响应 | 广告收入 |
+
+### 配置报告 (Mediation Config)
+
+| Notebook | 渠道 | 数据格式 | 说明 |
+|----------|------|----------|------|
+| `applovin_max_report.py` | AppLovin MAX | JSON | 🔧 需展开 `ad_network_settings` |
+
+### IAP 报告
+
+| Notebook | 渠道 | 数据格式 | 说明 |
+|----------|------|----------|------|
+| `amazon_iap_report.py` | Amazon | CSV/ZIP | 按月获取，需解压 |
 
 ---
 
@@ -238,6 +302,51 @@ from utils.config_manager import get_env_mode, get_s3_config
 
 print(f"Environment Mode: {get_env_mode()}")
 print(f"S3 Config: {get_s3_config()}")
+```
+
+### 查看原始 API 响应（staging 模式）
+
+在 staging 模式下，系统会自动保存原始响应的前 3MB：
+
+```
+data_output/raw_download/{ad_type}/{ad_network}/{date}/{filename}.raw
+```
+
+### 测试数据格式解析
+
+```python
+from utils.data_parser import detect_format, convert_to_jsonl, DataFormat
+
+# 测试格式检测
+sample = '{"code":200,"results":[{"day":"2025-12-09","revenue":100}]}'
+fmt = detect_format(sample)
+print(f"Detected format: {fmt.value}")  # 输出: api_response
+
+# 测试转换
+jsonl, count, _ = convert_to_jsonl(sample)
+print(f"Converted {count} rows:\n{jsonl}")
+# 输出: {"day":"2025-12-09","revenue":100}
+```
+
+### 测试 AppLovin MAX 配置展开
+
+```python
+from utils.data_parser import expand_applovin_max_ad_unit
+
+ad_unit = {
+    "id": "xxx",
+    "name": "Test",
+    "platform": "ios",
+    "ad_network_settings": {
+        "UNITY_BIDDING": {"ad_network_ad_unit_id": "unity_123"},
+        "ADMOB_BIDDING": {"ad_network_ad_unit_id": "admob_456"}
+    }
+}
+
+records = expand_applovin_max_ad_unit(ad_unit)
+print(f"Expanded to {len(records)} records")
+for r in records:
+    print(r)
 ```
 
 ---
