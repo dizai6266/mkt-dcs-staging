@@ -112,8 +112,9 @@ def fetch_max_report_task(ds: str):
     ad_units = get_ad_unit_ids(management_key)
     print(f"📋 Found {len(ad_units)} ad unit(s)")
 
-    # 收集所有广告单元的数据
-    all_records = []
+    # 按每个广告单元分别保存
+    saved_count = 0
+    total_records = 0
     
     for ad_unit in ad_units:
         print(f"   📦 Processing ad unit: {ad_unit}")
@@ -133,11 +134,20 @@ def fetch_max_report_task(ds: str):
             jsonl_content, row_count = convert_applovin_max_config(response.text)
             
             if jsonl_content:
-                # 收集记录
-                for line in jsonl_content.split('\n'):
-                    if line.strip():
-                        all_records.append(line)
-                print(f"      ✅ Extracted {row_count} network records")
+                # 按每个 ad_unit id 分别保存文件
+                helper.save_report(
+                    ad_network=_AD_NETWORK,
+                    ad_type=_AD_TYPE,
+                    report_content=jsonl_content,
+                    exc_ds=ds,
+                    start_ds=start_ds,
+                    end_ds=end_ds,
+                    custom=ad_unit,  # 使用 ad_unit id 作为 custom 后缀
+                    data_format='jsonl'
+                )
+                saved_count += 1
+                total_records += row_count
+                print(f"      ✅ Saved {row_count} network records")
             else:
                 print(f"      ⚠️ No data extracted for ad unit {ad_unit}")
                 
@@ -145,24 +155,7 @@ def fetch_max_report_task(ds: str):
             print(f"      ❌ Error processing ad unit {ad_unit}: {e}")
             continue
 
-    print(f"\n📊 Total records collected: {len(all_records)}")
-    
-    # 合并所有记录并保存
-    if all_records:
-        combined_content = '\n'.join(all_records)
-        
-        helper.save_report(
-            ad_network=_AD_NETWORK,
-            ad_type=_AD_TYPE,
-            report_content=combined_content,
-            exc_ds=ds,
-            start_ds=start_ds,
-            end_ds=end_ds,
-            data_format='jsonl'  # 已经是 JSONL 格式
-        )
-        print(f"✅ Saved {_AD_NETWORK} report for {start_ds} to {end_ds}")
-    else:
-        print(f"⚠️ No data to save for {_AD_NETWORK}")
+    print(f"\n📊 Total: {saved_count} files saved, {total_records} records")
 
 # COMMAND ----------
 
