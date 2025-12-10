@@ -314,8 +314,7 @@ def build_s3_path(s3_subpath: str, exc_ds: str = None):
     根据环境模式构建 S3 路径
     
     路径规则：
-    - prod:    reports/{s3_subpath}/{exc_ds}
-    - staging: reports_staging/{s3_subpath}/{exc_ds}
+    reports/{s3_subpath}/{exc_ds}
     
     Args:
         s3_subpath: S3 子路径，如 'spend/aarki', 'iap/amazon', 'income/facebook'
@@ -326,16 +325,12 @@ def build_s3_path(s3_subpath: str, exc_ds: str = None):
     
     Example:
         >>> build_s3_path('spend/aarki', '2024-01-15')
-        'reports_staging/spend/aarki/2024-01-15'  # staging 环境
-        'reports/spend/aarki/2024-01-15'          # prod 环境
+        'reports/spend/aarki/2024-01-15'          
     """
     env_mode = get_env_mode()
     
     # 根据环境选择前缀
-    if env_mode == 'prod':
-        prefix = 'reports'
-    else:
-        prefix = 'reports_staging'
+    prefix = 'reports' 
     
     # 构建路径
     if exc_ds:

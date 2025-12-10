@@ -1,8 +1,8 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Aarki Spend Report
+# MAGIC # Appier Spend Report
 # MAGIC
-# MAGIC 该 Notebook 从 Aarki API 获取广告消耗数据。
+# MAGIC 该 Notebook 从 Appier API 获取广告消耗数据。
 
 # COMMAND ----------
 
@@ -45,9 +45,9 @@ print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 # COMMAND ----------
 
 # --- [配置参数] ---
-_AD_NETWORK = 'aarki'
+_AD_NETWORK = 'appier'
 _AD_TYPE = 'spend'
-_DATE_RANGE = 2
+_DATE_RANGE = 7
 
 # 获取 Widget 参数
 try:
@@ -70,7 +70,7 @@ print(f"📅 Execution Date: {ds_param}")
 
 def fetch_spend_report_task(ds: str):
     """
-    获取 Aarki 消耗报告
+    获取 Appier 消耗报告
     
     Args:
         ds: 执行日期 (YYYY-MM-DD)
@@ -80,20 +80,16 @@ def fetch_spend_report_task(ds: str):
     start_dt = end_dt + timedelta(days=-(_DATE_RANGE))
     start_ds = start_dt.strftime('%Y-%m-%d')
 
+    print(f"📆 Date Range: {start_ds} to {end_ds}")
+
     cfg = helper.get_cfg(_AD_NETWORK)
-    token = cfg.get('token')
+    access_token = cfg.get('access_token')
 
     req_opt = dict(
-        url='http://encore.aarki.com/dsp/api/v2/account_summary.csv?by_campaign=y&by_campaign_tag=y&by_country=y&by_store_identifier=y&by_platform=y&by_creative=y&by_size=y&by_placement=y',
-        params={
-            'token': token,
-            'start_date': start_ds,
-            'end_date': end_ds
-        }
+        url=f'https://mmp.appier.org/campaign_report?access_token={access_token}&start_date={start_ds}&end_date={end_ds}&timezone=0',
     )
 
-    print(f"📡 Fetching report from: {req_opt['url']}")
-    print(f"📆 Date Range: {start_ds} to {end_ds}")
+    print(f"📡 Fetching report from: {req_opt['url'][:80]}...")
 
     # 使用 helper.fetch_report 进行流式下载，避免 OOM
     helper.fetch_report(

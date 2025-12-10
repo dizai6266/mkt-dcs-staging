@@ -221,35 +221,4 @@ except Exception as e:
 env_mode = get_env_mode()
 print(f"\n🔍 Data Validation (ENV_MODE={env_mode})")
 
-if env_mode != 'staging':
-    print("⚠️ 非 staging 模式，跳过本地 preview。")
-else:
-    try:
-        base_root = getattr(helper, "_DATA_BASE_PATH", None) or os.path.join(os.getcwd(), "data_output")
-        preview_root = os.path.join(base_root, _AD_TYPE, _AD_NETWORK)
-        print(f"🔎 Scanning preview files under: {preview_root}")
-
-        if not os.path.exists(preview_root):
-            print(f"⚠️ Preview directory does not exist: {preview_root}")
-        else:
-            preview_files = []
-            for root, dirs, files in os.walk(preview_root):
-                for name in files:
-                    if name.endswith('.preview'):
-                        preview_files.append(os.path.join(root, name))
-
-            print(f"✅ Found {len(preview_files)} preview file(s)")
-
-            for sample_file in preview_files:
-                print(f"\n   Previewing: {sample_file}")
-                try:
-                    df = pd.read_json(sample_file, lines=True)
-                    try:
-                        display(df.head(5))
-                    except NameError:
-                        print(df.head(5).to_string())
-                    print(f"   Total rows: {len(df)}\n")
-                except Exception as e:
-                    print(f"   ❌ Failed to read preview file: {e}")
-    except Exception as e:
-        print(f"❌ Preview scan error: {e}")
+helper.validate_and_preview_data(_AD_TYPE, _AD_NETWORK)

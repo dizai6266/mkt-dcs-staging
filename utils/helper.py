@@ -20,12 +20,20 @@ _env_mode = get_env_mode()
 _DATA_BASE_PATH = os.path.join(os.getcwd(), "data_output")
 
 
+# ============================================================================
+# 配置相关函数
+# ============================================================================
+
 def get_cfg(cfg_name: str):
     """获取配置"""
     if cfg_name == 'env':
         return get_secret_config('env')
     return get_secret_config(cfg_name)
 
+
+# ============================================================================
+# 数据格式转换相关函数（内部使用）
+# ============================================================================
 
 def _get_read_csv_error_handling_kwargs():
     """根据 Pandas 版本返回正确的错误处理参数"""
@@ -166,6 +174,10 @@ def _convert_to_jsonl(text_data: str, data_format: str = None) -> tuple:
         return text_data, 0, 'unknown'
 
 
+# ============================================================================
+# 文件保存相关函数（内部使用）
+# ============================================================================
+
 def _save_preview_by_lines(jsonl_content: str, preview_path: str, max_size: int = 5 * 1024 * 1024):
     """
     按行截断保存 preview，确保不会截断到 JSON 中间
@@ -186,6 +198,10 @@ def _save_preview_by_lines(jsonl_content: str, preview_path: str, max_size: int 
     
     return preview_size, len(preview_lines)
 
+
+# ============================================================================
+# S3 上传相关函数
+# ============================================================================
 
 def upload_data_to_s3(data: bytes, s3_subpath: str, exc_ds: str = None, filename: str = None):
     """直接从内存数据上传到 S3（压缩为 Gzip）"""
@@ -240,6 +256,10 @@ def upload_data_to_s3(data: bytes, s3_subpath: str, exc_ds: str = None, filename
         logging.error(error_msg)
         raise RuntimeError(error_msg)
 
+
+# ============================================================================
+# 报告获取与保存相关函数
+# ============================================================================
 
 def fetch_report(ad_network: str, ad_type: str, exc_ds: str, start_ds=None, end_ds=None, report_ds=None, custom=None, **req_opt):
     """获取报告并保存"""
@@ -564,6 +584,10 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
         return None
 
 
+# ============================================================================
+# 通知相关函数
+# ============================================================================
+
 def send_feishu(bot_access_token, title, infos):
     """简化的飞书发送"""
     content_text = "\n".join(infos)
@@ -597,3 +621,78 @@ def failure_callback(exception_msg, job_name):
         print(f"⚠️ Failed to send failure notification: {e}")
         print(f"Job Failed: {job_name}")
         print(f"Error: {exception_msg}")
+
+
+# ============================================================================
+# 数据验证与预览相关函数
+# ============================================================================
+
+def validate_and_preview_data(ad_type: str, ad_network: str):
+    """
+    在 staging 模式下扫描并预览 preview 文件
+    
+    该函数会：
+    1. 扫描指定 ad_type 和 ad_network 下的所有 .preview 文件
+    2. 手动逐行读取 JSONL 格式的 preview 文件（避免 Spark Arrow 类型转换问题）
+    3. 显示预览数据的前 5 行
+    
+    Args:
+        ad_type: 广告类型，如 'spend', 'income', 'iap'
+        ad_network: 广告网络名称，如 'aarki', 'applovin'
+    
+    Returns:
+        None（仅用于打印预览信息）
+    """
+    env_mode = get_env_mode()
+    
+    if env_mode != 'staging':
+        print("⚠️ 非 staging 模式，跳过本地 preview。")
+        return
+    
+    try:
+        # 直接使用模块级别的 _DATA_BASE_PATH 变量
+        base_root = _DATA_BASE_PATH or os.path.join(os.getcwd(), "data_output")
+        preview_root = os.path.join(base_root, ad_type, ad_network)
+        print(f"🔎 Scanning preview files under: {preview_root}")
+        
+        if not os.path.exists(preview_root):
+            print(f"⚠️ Preview directory does not exist: {preview_root}")
+            return
+        
+        # 查找所有 .preview 文件
+        preview_files = []
+        for root, dirs, files in os.walk(preview_root):
+            for name in files:
+                if name.endswith('.preview'):
+                    preview_files.append(os.path.join(root, name))
+        
+        print(f"✅ Found {len(preview_files)} preview file(s)")
+        
+        # 预览每个文件
+        for sample_file in preview_files:
+            print(f"\n   Previewing: {sample_file}")
+            try:
+                # 手动逐行读取 JSONL，避免 Spark Arrow 类型转换问题
+                records = []
+                with open(sample_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                records.append(json.loads(line))
+                            except json.JSONDecodeError as je:
+                                print(f"   ⚠️  Skipping invalid JSON line: {je}")
+                
+                if records:
+                    df = pandas.DataFrame(records)
+                    try:
+                        display(df.head(5))
+                    except NameError:
+                        print(df.head(5).to_string())
+                    print(f"   Total rows: {len(df)}\n")
+                else:
+                    print(f"   ⚠️  No valid records found in preview file\n")
+            except Exception as e:
+                print(f"   ❌ Failed to read preview file: {e}")
+    except Exception as e:
+        print(f"❌ Preview scan error: {e}")

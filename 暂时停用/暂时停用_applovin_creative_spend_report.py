@@ -1,8 +1,8 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # AppLovin Asset Spend Report
+# MAGIC # AppLovin Creative Spend Report
 # MAGIC
-# MAGIC 该 Notebook 从 AppLovin API 获取广告素材维度的消耗数据。
+# MAGIC 该 Notebook 从 AppLovin API 获取广告创意维度的消耗数据。
 
 # COMMAND ----------
 
@@ -16,7 +16,7 @@
 # COMMAND ----------
 
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import sys
 import os
 import pandas as pd
@@ -45,15 +45,27 @@ print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 # COMMAND ----------
 
 # --- [配置参数] ---
-_AD_NETWORK = 'applovin_asset'
+_AD_NETWORK = 'applovin_creative'
 _AD_TYPE = 'spend'
 
-# AppLovin Asset 报告使用 UTC 时间的昨天作为目标日期
-utc_now = datetime.now(timezone.utc)
-ds_param = (utc_now - timedelta(days=1)).strftime('%Y-%m-%d')
+########################################################
+########################################################
+# 这里存在数据重复获取的问题，如果需要重新启用再改
+_DATE_RANGE = 15
+########################################################
+########################################################
 
-print(f"📅 Job Run Date (UTC): {utc_now}")
-print(f"🎯 Target Report Date: {ds_param}")
+# 获取 Widget 参数
+try:
+    dbutils.widgets.text("ds", "", "Execution Date (YYYY-MM-DD)")
+    ds_param = dbutils.widgets.get("ds")
+except:
+    ds_param = ""
+
+if not ds_param:
+    ds_param = (datetime.utcnow() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+print(f"📅 Execution Date: {ds_param}")
 
 # COMMAND ----------
 
@@ -64,10 +76,10 @@ print(f"🎯 Target Report Date: {ds_param}")
 
 def fetch_spend_report_task(ds: str):
     """
-    获取 AppLovin Asset 消耗报告
+    获取 AppLovin Creative 消耗报告
     
     Args:
-        ds: 执行日期 (YYYY-MM-DD)，即报告的目标日期
+        ds: 执行日期 (YYYY-MM-DD)
     """
     try:
         cfg = helper.get_cfg('applovin')
@@ -79,22 +91,19 @@ def fetch_spend_report_task(ds: str):
         print("⚠️ No spend config found.")
         return
 
+    end_dt = datetime.strptime(ds, '%Y-%m-%d')
+    initial_start_dt = end_dt + timedelta(days=-(_DATE_RANGE))
+    
+    print(f"📆 Date Range: {initial_start_dt.strftime('%Y-%m-%d')} to {ds}")
+    print(f"📋 Processing {len(cfg.get('spend'))} account(s)")
+
     # 账号 ID 映射：index 1 -> 53127, index 2 -> 1385759904
     ACCOUNT_ID_MAP = {
         1: '53127',
         2: '1385759904'
     }
 
-    # 只处理 index 为 1 和 2 的账号
-    target_accounts = [item for item in cfg.get('spend') if item.get('index') in [1, 2]]
-    
-    if not target_accounts:
-        print("⚠️ No target accounts found (index 1 or 2).")
-        return
-    
-    print(f"📋 Found {len(target_accounts)} target account(s) to process")
-
-    for item in target_accounts:
+    for item in cfg.get('spend'):
         api_key = item.get('api_key')
         account_index = item.get('index')
         
@@ -107,16 +116,24 @@ def fetch_spend_report_task(ds: str):
         
         print(f"\n--- Processing Account: index={account_index}, account_id={account_id} ---")
         
-        for range_val in ['yesterday', 'last_7d']:
-            print(f'   📡 Fetching report for {ds} (range={range_val})...')
+        start_dt = initial_start_dt
+        day_count = 0
+        
+        while start_dt <= end_dt:
+            start_ds = start_dt.strftime('%Y-%m-%d')
+            end_ds = start_ds
             
+            print(f'   📡 Fetching report for {start_ds}...')
+
             req_opt = dict(
-                url='https://r.applovin.com/assetReport',
+                url='https://r.applovin.com/probabilisticReport',
                 params={
                     'api_key': api_key,
-                    'range': range_val,
-                    'columns': 'asset_id,asset_name,impressions,clicks,ctr,cost',
-                    'format': 'csv'
+                    'start': start_ds,
+                    'end': end_ds,
+                    'columns': 'day,impressions,clicks,ctr,conversions,conversion_rate,average_cpa,average_cpc,country,campaign,traffic_source,ad_type,cost,sales,first_purchase,size,device_type,platform,campaign_package_name,campaign_id_external,campaign_ad_type,ad,ad_id,creative_set,creative_set_id',
+                    'format': 'csv',
+                    'report_type': 'advertiser',
                 }
             )
             
@@ -124,52 +141,36 @@ def fetch_spend_report_task(ds: str):
                 resp = requests.get(**req_opt)
                 if resp.status_code not in [200, 204, 422]:
                     raise RuntimeError(
-                        f'Failed to download {_AD_NETWORK} report for {ds}: {resp.status_code} {resp.text}'
+                        f'Failed to download {_AD_NETWORK} report for {end_ds} (execute_date={ds}): {resp.status_code} {resp.text[:200]}'
                     )
                 
                 if resp.text:
                     resp.encoding = 'utf-8'
                     report_str = resp.text
                     
-                    # 确定时间范围
-                    if range_val == 'yesterday':
-                        start_ds = ds
-                        end_ds = ds
-                    else:
-                        # last_7d: ds - 6 days
-                        end_dt = datetime.strptime(ds, '%Y-%m-%d')
-                        start_dt = end_dt - timedelta(days=6)
-                        start_ds = start_dt.strftime('%Y-%m-%d')
-                        end_ds = ds
-
-                    # 添加日期列和账号 ID 列处理
-                    lines = report_str.strip().split('\n')
-                    if lines:
-                        header = f"{lines[0]},date,range_type,account_id"
-                        modified_lines = [header]
-                        for line in lines[1:]:
-                            if line.strip():
-                                modified_lines.append(f"{line},{ds},{range_val},{account_id}")
-                        report_str = '\n'.join(modified_lines)
-                    
                     helper.save_report(
-                        ad_network=_AD_NETWORK, 
-                        ad_type=_AD_TYPE, 
-                        report=report_str, 
-                        exc_ds=ds, 
-                        start_ds=start_ds, 
+                        ad_network=_AD_NETWORK,
+                        ad_type=_AD_TYPE,
+                        report=report_str,
+                        exc_ds=ds,
+                        start_ds=start_ds,
                         end_ds=end_ds,
-                        custom=account_id  # <--- CHANGE: Pass actual Account ID instead of index
+                        custom=account_id  # 使用 account_id 而不是 index
                     )
-                    print(f"     ✅ Processed account {account_id} for {range_val}")
+                    day_count += 1
+                    print(f"     ✅ Saved report for {start_ds}")
                 else:
-                    print(f"     ⚠️ No data returned for {range_val}")
+                    print(f"     ⚠️ No data returned for {start_ds}")
                     
             except Exception as e:
-                print(f"     ❌ Error processing account {account_id} (index {account_index}): {e}")
+                print(f"     ❌ Error processing {start_ds}: {e}")
                 raise e
-    
-    print(f"\n✅ Saved {_AD_NETWORK} report for {ds}")
+
+            start_dt += timedelta(days=1)
+        
+        print(f"   ✅ Processed {day_count} day(s) for account {account_id}")
+
+    print(f"\n✅ Saved {_AD_NETWORK} report for {initial_start_dt.strftime('%Y-%m-%d')} to {ds}")
 
 # COMMAND ----------
 
