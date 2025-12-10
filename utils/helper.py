@@ -198,10 +198,14 @@ def upload_data_to_s3(data: bytes, s3_subpath: str, exc_ds: str = None, filename
 
 def fetch_report(ad_network: str, ad_type: str, exc_ds: str, start_ds=None, end_ds=None, report_ds=None, custom=None, **req_opt):
     """获取报告并保存"""
-    req_opt['timeout'] = req_opt.get('timeout', 1800)
+    # 设置超时: (连接超时, 读取超时)
+    # 连接超时 60 秒，读取超时 1800 秒（30分钟）
+    req_opt['timeout'] = req_opt.get('timeout', (60, 1800))
     req_opt['stream'] = True
     
+    print(f"   ⏳ Connecting to API (timeout: 60s)...")
     resp = requests.get(**req_opt)
+    print(f"   ✅ Connected, status: {resp.status_code}")
     
     if resp.status_code not in [200, 204, 422]:
         raise RuntimeError(
@@ -445,12 +449,38 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
     max_preview_size = 5 * 1024 * 1024
     
     try:
-        # 1. 下载响应内容到临时文件
+        # 1. 下载响应内容到临时文件（带进度显示）
         print("⬇️  Downloading stream to temporary file...")
         response.raw.decode_content = True
-        shutil.copyfileobj(response.raw, raw_temp_file)
+        
+        # 获取 Content-Length（如果有）
+        content_length = response.headers.get('Content-Length')
+        total_size = int(content_length) if content_length else None
+        
+        # 分块下载并显示进度
+        downloaded = 0
+        chunk_size = 1024 * 1024  # 1MB chunks
+        last_progress = 0
+        
+        while True:
+            chunk = response.raw.read(chunk_size)
+            if not chunk:
+                break
+            raw_temp_file.write(chunk)
+            downloaded += len(chunk)
+            
+            # 每 5MB 或每 10% 显示一次进度
+            if total_size:
+                progress = int(downloaded / total_size * 100)
+                if progress >= last_progress + 10:
+                    print(f"   📥 Downloaded: {downloaded / 1024 / 1024:.1f}MB / {total_size / 1024 / 1024:.1f}MB ({progress}%)")
+                    last_progress = progress
+            elif downloaded >= last_progress + 5 * 1024 * 1024:  # 每 5MB
+                print(f"   📥 Downloaded: {downloaded / 1024 / 1024:.1f}MB...")
+                last_progress = downloaded
+        
         raw_temp_file.seek(0)
-        print("✅ Download complete.")
+        print(f"✅ Download complete. Total: {downloaded / 1024 / 1024:.2f}MB")
         
         # 1.5 [STAGING ONLY] 保存原始数据预览（前 3MB），方便调试
         _save_raw_preview(raw_temp_file, ad_type, ad_network, exc_ds, filename)
@@ -460,6 +490,15 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
         parser = StreamingParser(chunk_size=10000)
         data_format = parser.detect_format_from_file(raw_temp_file)
         raw_temp_file.seek(0)
+        
+        # 如果格式检测为 UNKNOWN，打印原始数据样本便于调试
+        if data_format == DataFormat.UNKNOWN:
+            raw_temp_file.seek(0)
+            sample = raw_temp_file.read(500)
+            if isinstance(sample, bytes):
+                sample = sample.decode('utf-8', errors='ignore')
+            print(f"   ⚠️ Unknown format detected. Raw sample: {sample[:200]}...")
+            raw_temp_file.seek(0)
         
         if local_file:
             local_f = open(local_file, 'w', encoding='utf-8')

@@ -102,6 +102,9 @@ def detect_format(text_data: str) -> DataFormat:
                             break
                 if valid_jsonl:
                     return DataFormat.JSONL
+            else:
+                # 只有一行，且是有效 JSON 对象
+                return DataFormat.JSON_OBJECT
         except json.JSONDecodeError:
             pass
     
@@ -115,6 +118,7 @@ def detect_format(text_data: str) -> DataFormat:
             pass
     
     # 3. 检查是否为单个 JSON 对象（包括 API 响应）
+    # 注意：即使是多行 JSON（格式化的），也应该尝试解析
     if text_stripped.startswith('{'):
         try:
             data = json.loads(text_stripped)
@@ -126,8 +130,20 @@ def detect_format(text_data: str) -> DataFormat:
         except json.JSONDecodeError:
             pass
     
-    # 4. 默认尝试作为 CSV
-    return DataFormat.CSV
+    # 4. 更严格的 CSV 检测：检查是否有明确的 CSV 特征
+    # - 第一行包含逗号分隔的字段名
+    # - 不以 { 或 [ 开头
+    if not text_stripped.startswith('{') and not text_stripped.startswith('['):
+        lines = text_stripped.split('\n')
+        if len(lines) >= 1:
+            first_line = lines[0].strip()
+            # 检查是否有逗号分隔的多个字段
+            if ',' in first_line or '\t' in first_line:
+                return DataFormat.CSV
+    
+    # 5. 无法识别的格式
+    logging.warning(f"   ⚠️ Could not detect format. First 100 chars: {text_stripped[:100]}")
+    return DataFormat.UNKNOWN
 
 
 def _is_api_response(data: dict) -> bool:
