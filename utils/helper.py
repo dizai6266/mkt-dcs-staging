@@ -25,6 +25,10 @@ _DATA_BASE_PATH = None
 _env_mode = get_env_mode()
 _DATA_BASE_PATH = os.path.join(os.getcwd(), "data_output")
 
+# 原始数据预览配置
+_RAW_PREVIEW_MAX_SIZE = 3 * 1024 * 1024  # 3MB
+_RAW_PREVIEW_FOLDER = "raw_download"  # 原始数据预览文件夹
+
 
 # ============================================================================
 # 配置相关函数
@@ -40,6 +44,74 @@ def get_cfg(cfg_name: str):
 # ============================================================================
 # 文件保存相关函数（内部使用）
 # ============================================================================
+
+def _save_raw_preview(file_obj, ad_type: str, ad_network: str, exc_ds: str, filename: str):
+    """
+    保存原始响应数据的前 3MB 预览（仅 staging 环境）
+    
+    用于调试时查看 API 返回的原始数据格式
+    
+    Args:
+        file_obj: 已下载的临时文件对象
+        ad_type: 广告类型
+        ad_network: 广告网络
+        exc_ds: 执行日期
+        filename: 文件名
+    
+    Returns:
+        str: 保存的文件路径，或 None
+    """
+    env_mode = get_env_mode()
+    
+    # 只在 staging 环境下保存原始数据预览
+    if env_mode != 'staging':
+        return None
+    
+    if _DATA_BASE_PATH is None:
+        return None
+    
+    try:
+        # 记录当前位置
+        current_pos = file_obj.tell()
+        file_obj.seek(0)
+        
+        # 读取前 3MB
+        raw_preview_data = file_obj.read(_RAW_PREVIEW_MAX_SIZE)
+        
+        # 恢复文件位置
+        file_obj.seek(current_pos)
+        
+        if not raw_preview_data:
+            return None
+        
+        # 创建原始数据预览目录
+        raw_preview_path = os.path.join(
+            _DATA_BASE_PATH, 
+            _RAW_PREVIEW_FOLDER, 
+            ad_type, 
+            ad_network, 
+            exc_ds
+        )
+        os.makedirs(raw_preview_path, exist_ok=True)
+        
+        # 保存原始数据预览
+        raw_file = os.path.join(raw_preview_path, f"{filename}.raw")
+        
+        # 写入文件（二进制模式，保持原始格式）
+        with open(raw_file, 'wb') as f:
+            f.write(raw_preview_data)
+        
+        # 计算实际大小
+        actual_size = len(raw_preview_data)
+        size_str = f"{actual_size / 1024:.1f}KB" if actual_size < 1024 * 1024 else f"{actual_size / 1024 / 1024:.2f}MB"
+        
+        print(f"📥 Saved raw preview: {raw_file} ({size_str})")
+        return raw_file
+        
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to save raw preview: {e}")
+        return None
+
 
 def _save_preview_by_lines(jsonl_content: str, preview_path: str, max_size: int = 5 * 1024 * 1024):
     """
@@ -215,6 +287,29 @@ def save_report(
         logging.warning("⚠️ No data to save")
         return None
     
+    # [STAGING ONLY] 保存原始数据预览（前 3MB），方便调试
+    if env_mode == 'staging' and _DATA_BASE_PATH:
+        try:
+            raw_preview_path = os.path.join(
+                _DATA_BASE_PATH, 
+                _RAW_PREVIEW_FOLDER, 
+                ad_type, 
+                ad_network, 
+                exc_ds
+            )
+            os.makedirs(raw_preview_path, exist_ok=True)
+            raw_file = os.path.join(raw_preview_path, f"{filename}.raw")
+            
+            # 截取前 3MB
+            raw_preview_data = raw_data[:_RAW_PREVIEW_MAX_SIZE]
+            with open(raw_file, 'wb') as f:
+                f.write(raw_preview_data)
+            
+            size_str = f"{len(raw_preview_data) / 1024:.1f}KB" if len(raw_preview_data) < 1024 * 1024 else f"{len(raw_preview_data) / 1024 / 1024:.2f}MB"
+            print(f"📥 Saved raw preview: {raw_file} ({size_str})")
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to save raw preview: {e}")
+    
     # 使用 data_parser 模块转换为 JSONL
     try:
         text_data = raw_data.decode('utf-8')
@@ -356,6 +451,10 @@ def _save_report_streaming(ad_network: str, ad_type: str, response, filename: st
         shutil.copyfileobj(response.raw, raw_temp_file)
         raw_temp_file.seek(0)
         print("✅ Download complete.")
+        
+        # 1.5 [STAGING ONLY] 保存原始数据预览（前 3MB），方便调试
+        _save_raw_preview(raw_temp_file, ad_type, ad_network, exc_ds, filename)
+        raw_temp_file.seek(0)
         
         # 2. 使用 StreamingParser 自动检测格式并解析
         parser = StreamingParser(chunk_size=10000)
