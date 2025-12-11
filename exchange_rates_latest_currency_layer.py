@@ -46,8 +46,8 @@ print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 # COMMAND ----------
 
 # --- [配置参数] ---
-_AD_NETWORK = 'exchange_rates'
-_AD_TYPE = 'exchange_rate'
+_AD_NETWORK = 'currency_layer'
+_AD_TYPE = 'exchange_rates'
 _DATE_RANGE = 7
 _XR_BASE = 'USD'
 
@@ -140,8 +140,7 @@ def fetch_currency_layer_task(ds: str):
         report=json.dumps(latest_rates_list),
         exc_ds=ds,
         start_ds=start_ds,
-        end_ds=end_ds,
-        custom='currency_layer'
+        end_ds=end_ds
     )
     
     print(f"\n✅ Saved exchange rates for {start_ds} to {end_ds}")
@@ -162,7 +161,7 @@ try:
 except Exception as e:
     print(f"\n❌ Job Failed: {e}")
     # on_failure_callback: 失败时发送飞书通知
-    helper.failure_callback(str(e), f"{_AD_NETWORK}_currency_layer_report")
+    helper.failure_callback(str(e), f"{_AD_TYPE}_{_AD_NETWORK}_report")
     raise e
 
 # COMMAND ----------

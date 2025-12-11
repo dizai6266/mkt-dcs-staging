@@ -45,8 +45,8 @@ print(f"✅ Environment Setup Complete. Current Dir: {os.getcwd()}")
 # COMMAND ----------
 
 # --- [配置参数] ---
-_AD_NETWORK = 'exchange_rates'
-_AD_TYPE = 'exchange_rate'
+_AD_NETWORK = 'exchange_rates_api'
+_AD_TYPE = 'exchange_rates'
 _XR_BASE = 'USD'
 
 # API URLs
@@ -129,8 +129,7 @@ def fetch_exchange_rates_task(ds: str):
         ad_type=_AD_TYPE,
         report=json.dumps(latest_rates_list),
         exc_ds=ds,
-        report_ds=latest_rates_date,
-        custom='exchange_rates_api'
+        report_ds=latest_rates_date
     )
     
     print(f"\n✅ Saved exchange rates for {latest_rates_date}")
@@ -151,7 +150,7 @@ try:
 except Exception as e:
     print(f"\n❌ Job Failed: {e}")
     # on_failure_callback: 失败时发送飞书通知
-    helper.failure_callback(str(e), f"{_AD_NETWORK}_latest_report")
+    helper.failure_callback(str(e), f"{_AD_TYPE}_{_AD_NETWORK}_report")
     raise e
 
 # COMMAND ----------
