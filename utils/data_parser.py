@@ -104,6 +104,10 @@ def detect_format(text_data: str) -> DataFormat:
                     return DataFormat.JSONL
             else:
                 # 只有一行，且是有效 JSON 对象
+                # 先检查是否为 API 响应格式
+                obj = json.loads(first_line)
+                if isinstance(obj, dict) and _is_api_response(obj):
+                    return DataFormat.API_RESPONSE
                 return DataFormat.JSON_OBJECT
         except json.JSONDecodeError:
             pass
