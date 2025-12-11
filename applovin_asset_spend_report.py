@@ -78,13 +78,6 @@ def fetch_spend_report_task(ds: str):
     if not cfg.get('spend'):
         print("⚠️ No spend config found.")
         return
-
-    # 文件名标识映射：使用 api_key 前几位作为文件名标识
-    # index 1 -> api_key "uTAga", index 2 -> api_key "ND6W"
-    API_KEY_MAP = {
-        1: 'uTAga',
-        2: 'ND6W'
-    }
     
     # 内容 account_id 映射：用于 CSV 内容中的 account_id 字段
     # index 1 -> '53127', index 2 -> '1385759904'
@@ -100,13 +93,23 @@ def fetch_spend_report_task(ds: str):
         print("⚠️ No target accounts found (index 1 or 2).")
         return
     
+    # API Key 映射：使用 API key 的前4位作为文件名标识符
+    # 创建映射表，account_index -> api_key 前4位
+    API_KEY_MAP = {}
+    for item in target_accounts:
+        api_key = item.get('api_key')
+        account_index = item.get('index')
+        if api_key and account_index:
+            key_identifier = api_key.strip()[:4] if len(api_key.strip()) >= 4 else f"key{account_index}"
+            API_KEY_MAP[account_index] = key_identifier
+    
     print(f"📋 Found {len(target_accounts)} target account(s) to process")
 
     for item in target_accounts:
         api_key = item.get('api_key')
         account_index = item.get('index')
         
-        # 文件名标识：使用 api_key 前几位
+        # 文件名标识：使用 api_key 前4位
         file_identifier = API_KEY_MAP.get(account_index)
         
         # 内容 account_id：使用真实的 account_id

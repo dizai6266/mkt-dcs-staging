@@ -93,18 +93,21 @@ def fetch_income_report_task(ds: str):
     print(f"📆 Date Range: {start_ds} to {end_ds}")
     print(f"📋 Processing {len(cfg.get('income'))} account(s)")
 
-    # API Key 映射：根据 income 配置，使用 api_key 前几位作为标识
-    # index 1 -> api_key "uTAg", index 2 -> api_key "VA3d"
-    API_KEY_MAP = {
-        1: 'uTAg',
-        2: 'VA3d'
-    }
+    # API Key 映射：使用 API key 的前4位作为标识符
+    # 创建映射表，account_index -> api_key 前4位
+    API_KEY_MAP = {}
+    for item in cfg.get('income'):
+        api_key = item.get('api_key')
+        account_index = item.get('index')
+        if api_key and account_index:
+            key_identifier = api_key.strip()[:4] if len(api_key.strip()) >= 4 else f"key{account_index}"
+            API_KEY_MAP[account_index] = key_identifier
 
     for item in cfg.get('income'):
         api_key = item.get('api_key')
         account_index = item.get('index')
         
-        # 优先使用配置中的 account_id，如果没有则使用映射
+        # 优先使用配置中的 account_id，如果没有则使用 API key 前4位
         account_id = item.get('account_id') or API_KEY_MAP.get(account_index)
         
         if not account_id:

@@ -97,10 +97,20 @@ def fetch_spend_report_task(ds: str):
         print("⚠️ No API keys found in config.")
         return
     
+    # API Key 映射：使用 API key 的前4位作为标识符
+    # 创建映射表，key_index -> api_key 前4位
+    API_KEY_MAP = {}
+    for key_index, key in enumerate(keys, start=1):
+        key_identifier = key.strip()[:4] if len(key.strip()) >= 4 else f"key{key_index}"
+        API_KEY_MAP[key_index] = key_identifier
+    
     print(f"📋 Processing {len(keys)} API key(s) for {len(dts)} month(s)")
     
     for key_index, key in enumerate(keys, start=1):
-        print(f"\n--- Processing API Key {key_index}/{len(keys)} ---")
+        # 获取对应的标识符（API key 前4位）
+        key_identifier = API_KEY_MAP.get(key_index, f"key{key_index}")
+        
+        print(f"\n--- Processing API Key {key_index}/{len(keys)} ({key_identifier}) ---")
         
         for dt in dts:
             # 获取月份的最后一天
@@ -127,7 +137,7 @@ def fetch_spend_report_task(ds: str):
                 exc_ds=ds,
                 start_ds=month_start_ds,
                 end_ds=month_end_ds,
-                custom=f"key{key_index}",
+                custom=key_identifier,
                 **req_opt
             )
             

@@ -146,22 +146,25 @@ def fetch_spend_report_task(ds: str):
     
     print(f"   📱 Found {len(spend_accounts)} account(s) to process")
     
+    # API Key 映射：使用 API key 的前4位作为标识符
+    # 创建映射表，account_index -> api_key 前4位
+    API_KEY_MAP = {}
+    for item in spend_accounts:
+        api_key = item.get('api_key')
+        account_index = item.get('index')
+        if api_key and account_index:
+            key_identifier = api_key.strip()[:4] if len(api_key.strip()) >= 4 else f"key{account_index}"
+            API_KEY_MAP[account_index] = key_identifier
+    
     for item in spend_accounts:
         api_key = item.get('api_key')
         account_index = item.get('index')
         
-        # 优先使用配置中的 account_id 或 account_name，如果没有则使用 account_id 映射
+        # 优先使用配置中的 account_id 或 account_name，如果没有则使用 API key 前4位
         account_identifier = item.get('account_id') or item.get('account_name')
         
-        # 如果没有配置 account_id 或 account_name，尝试使用映射（向后兼容）
+        # 如果没有配置 account_id 或 account_name，尝试使用 API key 前4位（向后兼容）
         if not account_identifier:
-            # API Key 映射：根据 spend 配置，使用 api_key 前几位作为标识
-            # index 1 -> api_key "uTAga", index 2 -> api_key "ND6W", index 3 -> api_key "VA3d"
-            API_KEY_MAP = {
-                1: 'uTAga',
-                2: 'ND6W',
-                3: 'VA3d'
-            }
             account_identifier = API_KEY_MAP.get(account_index)
         
         if not account_identifier:
