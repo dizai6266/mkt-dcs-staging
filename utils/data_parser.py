@@ -160,16 +160,16 @@ def _detect_api_response_heuristic(text_data: str) -> bool:
     """
     启发式检测：判断是否为 API 响应格式（即使 JSON 被截断）
     
-    特征：
-    - 以 { 开头
-    - 包含 "code": 或 "status":
-    - 包含 "results": 或 "data": 等数据字段
+    特征（满足任一即可）：
+    - 包含 "code": 或 "status": 等元数据字段 + 数据字段
+    - 直接包含数据字段（如 "records":, "results":, "data": 等）
     """
-    # 检查常见的 API 响应特征
-    has_code = '"code"' in text_data or '"status"' in text_data
+    # 检查是否有常见的数据字段
     has_data_field = any(f'"{key}"' in text_data for key in API_RESPONSE_DATA_KEYS)
     
-    return has_code and has_data_field
+    # 只要有数据字段就认为是 API 响应格式
+    # 这样可以处理简单的 {"records": [...]} 格式
+    return has_data_field
 
 
 def _detect_json_object_heuristic(text_data: str) -> bool:
@@ -324,6 +324,11 @@ def _convert_api_response(text_data: str) -> Tuple[str, int, DataFormat]:
 def _convert_json_object(text_data: str) -> Tuple[str, int, DataFormat]:
     """处理单个 JSON 对象"""
     data = json.loads(text_data)
+    
+    # 再次检查是否实际是 API 响应格式（可能初始检测时数据被截断）
+    if isinstance(data, dict) and _is_api_response(data):
+        return _convert_api_response(text_data)
+    
     return json.dumps(data, ensure_ascii=False), 1, DataFormat.JSON_OBJECT
 
 
