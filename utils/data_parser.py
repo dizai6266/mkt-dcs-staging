@@ -337,8 +337,12 @@ def _convert_csv(text_data: str, date_columns: List[str]) -> Tuple[str, int, Dat
     csv_kwargs = _get_read_csv_kwargs()
     df = pandas.read_csv(io.StringIO(text_data), **csv_kwargs)
     
-    # 处理日期列
-    for col in date_columns:
+    # 规范化列名为小写
+    df.columns = [col.lower() for col in df.columns]
+    
+    # 处理日期列（使用小写列名匹配）
+    date_columns_lower = [col.lower() for col in date_columns]
+    for col in date_columns_lower:
         if col in df.columns:
             df[col] = df[col].astype(str)
     
@@ -412,8 +416,12 @@ class StreamingParser:
         csv_kwargs['chunksize'] = self.chunk_size
         
         for chunk_df in pandas.read_csv(file_obj, **csv_kwargs):
-            # 处理日期列
-            for col in self.date_columns:
+            # 规范化列名为小写
+            chunk_df.columns = [col.lower() for col in chunk_df.columns]
+            
+            # 处理日期列（使用小写列名匹配）
+            date_columns_lower = [col.lower() for col in self.date_columns]
+            for col in date_columns_lower:
                 if col in chunk_df.columns:
                     chunk_df[col] = chunk_df[col].astype(str)
             
